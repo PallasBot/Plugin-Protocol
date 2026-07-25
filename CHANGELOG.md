@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+
+## [$new] - $TODAY
+
+- chore(ci): 对齐 ruff 0.16 与主仓 ruff.toml，修复 lint
+
 ## [4.0.39] - 2026-07-24
 
 - fix(runtime): 保存协议资产时仅在 Docker↔非 Docker 模式切换时停进程/删容器；仅改镜像等配置不再连带停止 SnowLuma 等其它协议端。
