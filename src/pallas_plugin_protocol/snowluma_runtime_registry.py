@@ -18,9 +18,7 @@ from .contract import (
 
 def is_snowluma_account(account: dict) -> bool:
     bk = (
-        str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY) or DEFAULT_PROTOCOL_BACKEND)
-        .strip()
-        .lower()
+        str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY) or DEFAULT_PROTOCOL_BACKEND).strip().lower()
         or DEFAULT_PROTOCOL_BACKEND
     )
     return bk == SNOWLUMA_PROTOCOL_BACKEND or bool(account.get("snowluma_linux_docker"))
@@ -174,8 +172,7 @@ class SnowLumaRuntimeRegistry:
                 continue
             ad = str(account.get("account_data_dir", "") or "").strip()
             payload: dict[str, Any] = {
-                "display_name": str(account.get("display_name") or account_id).strip()
-                or account_id,
+                "display_name": str(account.get("display_name") or account_id).strip() or account_id,
                 "legacy_container_account_id": account_id,
             }
             if ad:

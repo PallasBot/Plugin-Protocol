@@ -17,9 +17,7 @@ ProtocolRuntimeBackendFactory = Callable[[Any], ProtocolRuntimeBackend]
 _PROTOCOL_RUNTIME_FACTORIES: dict[str, ProtocolRuntimeBackendFactory] = {}
 
 
-def register_protocol_runtime_backend(
-    kind: str, factory: ProtocolRuntimeBackendFactory
-) -> None:
+def register_protocol_runtime_backend(kind: str, factory: ProtocolRuntimeBackendFactory) -> None:
     """登记一种实现；factory 接收 PallasProtocolService，返回该后端的 RuntimeBackend 实例。应在插件加载阶段调用。"""
     key = (kind or "").strip().lower()
     if not key:
@@ -49,8 +47,8 @@ register_protocol_runtime_backend("snowluma", lambda s: SnowlumaRuntimeBackend(s
 
 __all__ = [
     "NapcatRuntimeBackend",
-    "SnowlumaRuntimeBackend",
     "ProtocolRuntimeBackend",
+    "SnowlumaRuntimeBackend",
     "make_protocol_runtime_backend",
     "register_protocol_runtime_backend",
     "registered_protocol_runtime_backends",

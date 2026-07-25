@@ -7,7 +7,6 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-
 from . import docker_cli
 from .docker_onebot_host import docker_host_gateway_extra_args
 from .linux_docker import sanitize_docker_name_suffix
@@ -22,28 +21,30 @@ SNOWLUMA_DOCKER_IMAGE = "pallas/snowluma-auto-login:latest"
 
 
 def snowluma_dockerfile() -> str:
+    packages = "xdotool imagemagick tesseract-ocr tesseract-ocr-chi-sim"
     return f"""FROM {SNOWLUMA_DOCKER_BASE_IMAGE}
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends xdotool imagemagick tesseract-ocr tesseract-ocr-chi-sim && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \\
+ && apt-get install -y --no-install-recommends {packages} \\
+ && rm -rf /var/lib/apt/lists/*
 """
 
 
 __all__ = [
-    "append_snowluma_docker_resource_limits",
     "SNOWLUMA_DOCKER_BASE_IMAGE",
     "SNOWLUMA_DOCKER_IMAGE",
+    "append_snowluma_docker_resource_limits",
     "build_snowluma_docker_run_argv",
     "build_snowluma_docker_run_argv_for_runtime",
     "clear_snowluma_login_state",
     "clear_snowluma_login_state_for_uin",
-    "snowluma_dockerfile",
+    "ensure_snowluma_docker_image",
     "snowluma_docker_container_name",
     "snowluma_docker_container_name_for_runtime",
     "snowluma_docker_container_running",
     "snowluma_docker_container_running_sync",
     "snowluma_docker_effective_host_novnc_port",
     "snowluma_docker_effective_host_vnc_port",
-    "ensure_snowluma_docker_image",
     "snowluma_docker_program_dir_marker",
     "snowluma_docker_remove_force",
     "snowluma_docker_remove_force_sync",
@@ -51,6 +52,7 @@ __all__ = [
     "snowluma_docker_stop_sync",
     "snowluma_docker_volume_paths",
     "snowluma_docker_volume_paths_from_data_dir",
+    "snowluma_dockerfile",
 ]
 
 
@@ -170,26 +172,15 @@ def clear_snowluma_login_state(account: dict) -> int:
 
 
 def _internal_webui_port(config: Any) -> int:
-    return int(
-        getattr(config, "pallas_protocol_snowluma_docker_internal_webui_port", 5099)
-        or 5099
-    )
+    return int(getattr(config, "pallas_protocol_snowluma_docker_internal_webui_port", 5099) or 5099)
 
 
 def _internal_onebot_http_port(config: Any) -> int:
-    return int(
-        getattr(
-            config, "pallas_protocol_snowluma_docker_internal_onebot_http_port", 3000
-        )
-        or 3000
-    )
+    return int(getattr(config, "pallas_protocol_snowluma_docker_internal_onebot_http_port", 3000) or 3000)
 
 
 def _internal_onebot_ws_port(config: Any) -> int:
-    return int(
-        getattr(config, "pallas_protocol_snowluma_docker_internal_onebot_ws_port", 3001)
-        or 3001
-    )
+    return int(getattr(config, "pallas_protocol_snowluma_docker_internal_onebot_ws_port", 3001) or 3001)
 
 
 def snowluma_docker_effective_host_novnc_port(account: dict, config: Any) -> int:
@@ -198,9 +189,7 @@ def snowluma_docker_effective_host_novnc_port(account: dict, config: Any) -> int
             return int(str(account["snowluma_docker_host_novnc_port"]).strip())
         except (TypeError, ValueError):
             return 0
-    return int(
-        getattr(config, "pallas_protocol_snowluma_docker_host_novnc_port", 0) or 0
-    )
+    return int(getattr(config, "pallas_protocol_snowluma_docker_host_novnc_port", 0) or 0)
 
 
 def snowluma_docker_effective_host_vnc_port(account: dict, config: Any) -> int:
@@ -213,14 +202,10 @@ def snowluma_docker_effective_host_vnc_port(account: dict, config: Any) -> int:
 
 
 def append_snowluma_docker_resource_limits(argv: list[str], config: Any) -> None:
-    mem = str(
-        getattr(config, "pallas_protocol_snowluma_docker_memory_limit", "") or ""
-    ).strip()
+    mem = str(getattr(config, "pallas_protocol_snowluma_docker_memory_limit", "") or "").strip()
     if mem:
         argv.extend(["--memory", mem])
-    swap = str(
-        getattr(config, "pallas_protocol_snowluma_docker_memory_swap", "") or ""
-    ).strip()
+    swap = str(getattr(config, "pallas_protocol_snowluma_docker_memory_swap", "") or "").strip()
     if swap:
         argv.extend(["--memory-swap", swap])
 
@@ -228,20 +213,14 @@ def append_snowluma_docker_resource_limits(argv: list[str], config: Any) -> None
 def build_snowluma_docker_run_argv(account: dict, config: Any, resolve_qq) -> list[str]:
     _ = str(resolve_qq(account) or "").strip()
     rid = str(account.get("snowluma_runtime_id") or "").strip()
-    legacy = str(
-        account.get("snowluma_runtime_legacy_container_account_id") or ""
-    ).strip()
+    legacy = str(account.get("snowluma_runtime_legacy_container_account_id") or "").strip()
     runtime_stub: dict[str, Any] = {
         "id": rid or str(account.get("id", "x")),
         "data_dir": str(account.get("account_data_dir", "")).strip(),
         "webui_port": account.get("webui_port"),
-        "snowluma_docker_host_onebot_http": account.get(
-            "snowluma_docker_host_onebot_http"
-        ),
+        "snowluma_docker_host_onebot_http": account.get("snowluma_docker_host_onebot_http"),
         "snowluma_docker_host_onebot_ws": account.get("snowluma_docker_host_onebot_ws"),
-        "snowluma_docker_host_novnc_port": account.get(
-            "snowluma_docker_host_novnc_port"
-        ),
+        "snowluma_docker_host_novnc_port": account.get("snowluma_docker_host_novnc_port"),
         "snowluma_docker_host_vnc_port": account.get("snowluma_docker_host_vnc_port"),
     }
     if legacy:
@@ -273,9 +252,7 @@ def build_snowluma_docker_run_argv_for_runtime(
     if not (1 <= host_webui <= 65535):
         host_webui = in_webui
     try:
-        host_http = int(
-            str(runtime.get("snowluma_docker_host_onebot_http", "")).strip()
-        )
+        host_http = int(str(runtime.get("snowluma_docker_host_onebot_http", "")).strip())
     except (TypeError, ValueError):
         host_http = 0
     try:
@@ -290,18 +267,9 @@ def build_snowluma_docker_run_argv_for_runtime(
     data_root = Path(str(runtime.get("data_dir", "") or "").strip()).resolve()
     if not str(runtime.get("data_dir", "") or "").strip():
         raise ValueError("Runtime data_dir 缺失")
-    data_dir, cfg_dir, local_share = snowluma_docker_volume_paths_from_data_dir(
-        data_root
-    )
-    shm = (
-        str(
-            getattr(config, "pallas_protocol_snowluma_docker_shm_size", "") or ""
-        ).strip()
-        or "1g"
-    )
-    vnc_pw = str(
-        getattr(config, "pallas_protocol_snowluma_docker_vnc_passwd", "") or ""
-    ).strip()
+    data_dir, cfg_dir, local_share = snowluma_docker_volume_paths_from_data_dir(data_root)
+    shm = str(getattr(config, "pallas_protocol_snowluma_docker_shm_size", "") or "").strip() or "1g"
+    vnc_pw = str(getattr(config, "pallas_protocol_snowluma_docker_vnc_passwd", "") or "").strip()
     rid = sanitize_docker_name_suffix(str(runtime.get("id", "x")))
     label_account = sanitize_docker_name_suffix(
         str(account_id_label or runtime.get("legacy_container_account_id") or rid)
@@ -351,14 +319,8 @@ def build_snowluma_docker_run_argv_for_runtime(
 
     novnc = snowluma_docker_effective_host_novnc_port(runtime, config)
     vnc = snowluma_docker_effective_host_vnc_port(runtime, config)
-    in_novnc = int(
-        getattr(config, "pallas_protocol_snowluma_docker_internal_novnc_port", 6081)
-        or 6081
-    )
-    in_vnc = int(
-        getattr(config, "pallas_protocol_snowluma_docker_internal_vnc_port", 5900)
-        or 5900
-    )
+    in_novnc = int(getattr(config, "pallas_protocol_snowluma_docker_internal_novnc_port", 6081) or 6081)
+    in_vnc = int(getattr(config, "pallas_protocol_snowluma_docker_internal_vnc_port", 5900) or 5900)
     if 1 <= novnc <= 65535:
         argv.extend(["-p", f"{novnc}:{in_novnc}"])
     if 1 <= vnc <= 65535:

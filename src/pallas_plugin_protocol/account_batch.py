@@ -86,9 +86,7 @@ class AccountBatchCoordinator:
     def _prune_old_jobs(self) -> None:
         if len(self._jobs) <= self.MAX_JOBS:
             return
-        finished = [
-            (jid, job) for jid, job in self._jobs.items() if job.status != "running"
-        ]
+        finished = [(jid, job) for jid, job in self._jobs.items() if job.status != "running"]
         finished.sort(key=lambda x: x[1].finished_at or x[1].started_at)
         for jid, _ in finished[: max(0, len(self._jobs) - self.MAX_JOBS + 1)]:
             self._jobs.pop(jid, None)
@@ -99,10 +97,7 @@ class AccountBatchCoordinator:
         job = self.get_job(job_id)
         if not job:
             return
-        payload = (
-            "event: progress\n"
-            f"data: {json.dumps(job.to_dict(), ensure_ascii=False)}\n\n"
-        )
+        payload = f"event: progress\ndata: {json.dumps(job.to_dict(), ensure_ascii=False)}\n\n"
         for queue in list(self._subscribers.get(job_id, [])):
             try:
                 queue.put_nowait(payload)
@@ -112,18 +107,12 @@ class AccountBatchCoordinator:
     async def subscribe_sse(self, job_id: str) -> AsyncIterator[str]:
         job = self.get_job(job_id)
         if job is None:
-            yield (
-                "event: error\n"
-                f"data: {json.dumps({'detail': 'job not found'}, ensure_ascii=False)}\n\n"
-            )
+            yield (f"event: error\ndata: {json.dumps({'detail': 'job not found'}, ensure_ascii=False)}\n\n")
             return
         queue: asyncio.Queue[str] = asyncio.Queue(maxsize=64)
         self._subscribers.setdefault(job_id, []).append(queue)
         try:
-            yield (
-                "event: snapshot\n"
-                f"data: {json.dumps(job.to_dict(), ensure_ascii=False)}\n\n"
-            )
+            yield (f"event: snapshot\ndata: {json.dumps(job.to_dict(), ensure_ascii=False)}\n\n")
             while True:
                 try:
                     msg = await asyncio.wait_for(queue.get(), timeout=30.0)
@@ -131,10 +120,7 @@ class AccountBatchCoordinator:
                     current = self.get_job(job_id)
                     if current is None or current.status != "running":
                         if current:
-                            yield (
-                                "event: snapshot\n"
-                                f"data: {json.dumps(current.to_dict(), ensure_ascii=False)}\n\n"
-                            )
+                            yield (f"event: snapshot\ndata: {json.dumps(current.to_dict(), ensure_ascii=False)}\n\n")
                         break
                     yield ": keepalive\n\n"
                     continue
@@ -142,10 +128,7 @@ class AccountBatchCoordinator:
                 current = self.get_job(job_id)
                 if current is None or current.status != "running":
                     if current:
-                        yield (
-                            "event: snapshot\n"
-                            f"data: {json.dumps(current.to_dict(), ensure_ascii=False)}\n\n"
-                        )
+                        yield (f"event: snapshot\ndata: {json.dumps(current.to_dict(), ensure_ascii=False)}\n\n")
                     break
         finally:
             subs = self._subscribers.get(job_id, [])
@@ -218,9 +201,7 @@ class AccountBatchCoordinator:
             await fn(account_id)
             result = BatchItemResult(account_id=account_id, ok=True)
         except KeyError as e:
-            result = BatchItemResult(
-                account_id=account_id, ok=False, error=str(e) or "账号不存在"
-            )
+            result = BatchItemResult(account_id=account_id, ok=False, error=str(e) or "账号不存在")
         except ValueError as e:
             result = BatchItemResult(account_id=account_id, ok=False, error=str(e))
         except Exception as e:
@@ -270,9 +251,7 @@ class AccountBatchCoordinator:
             job.message = "正在停止实例…"
             self._emit(job_id)
         for aid in account_ids:
-            await self._run_one(
-                job_id, aid, stop_fn, phase="stopping", count_progress=False
-            )
+            await self._run_one(job_id, aid, stop_fn, phase="stopping", count_progress=False)
         job = self._jobs.get(job_id)
         if job:
             job.phase = "starting"
@@ -375,9 +354,7 @@ class AccountBatchCoordinator:
                 job.status = "completed"
                 job.phase = "completed"
                 job.finished_at = datetime.now(UTC).isoformat()
-                job.message = f"完成 {job.total - failed}/{job.total}" + (
-                    f"，{failed} 个失败" if failed else ""
-                )
+                job.message = f"完成 {job.total - failed}/{job.total}" + (f"，{failed} 个失败" if failed else "")
                 self._emit(job_id)
         except asyncio.CancelledError:
             job = self._jobs.get(job_id)

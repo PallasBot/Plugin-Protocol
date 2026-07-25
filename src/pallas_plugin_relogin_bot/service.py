@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any, Literal
 
 from nonebot import get_driver
-
 from pallas.api.config import user_is_bot_admin
 from pallas.api.presence import bot_has_cluster_connection
 from pallas.core.foundation.db import make_bot_config_repository
@@ -71,16 +70,12 @@ async def bot_id_exists_in_db(bot_id: int) -> bool:
         return False
 
 
-async def wait_qrcode(
-    account_data_dir: Path, since: datetime, timeout_sec: int = 60
-) -> Path | None:
+async def wait_qrcode(account_data_dir: Path, since: datetime, timeout_sec: int = 60) -> Path | None:
     from pallas_plugin_protocol import manager as protocol_manager
 
     for aid, acc in (getattr(protocol_manager, "_accounts", {}) or {}).items():
         if str(acc.get("account_data_dir", "")).strip() == str(account_data_dir):
-            return await protocol_manager.wait_account_qrcode(
-                aid, since, timeout_sec=timeout_sec
-            )
+            return await protocol_manager.wait_account_qrcode(aid, since, timeout_sec=timeout_sec)
 
     qr_path = account_data_dir / "cache" / "qrcode.png"
     deadline = asyncio.get_running_loop().time() + timeout_sec
@@ -114,14 +109,10 @@ _RELOGIN_CONNECT_WAIT_SEC = 90
 _RELOGIN_PROCESS_WAIT_SEC = 90
 
 
-async def wait_bot_connected_after_login(
-    protocol_manager: Any, qq: str, *, timeout_sec: int
-) -> bool:
+async def wait_bot_connected_after_login(protocol_manager: Any, qq: str, *, timeout_sec: int) -> bool:
     if protocol_manager.is_bot_connected(qq):
         return True
-    return await protocol_manager.wait_account_bot_connected(
-        qq, timeout_sec=timeout_sec
-    )
+    return await protocol_manager.wait_account_bot_connected(qq, timeout_sec=timeout_sec)
 
 
 async def finish_relogin_after_restart(
@@ -135,9 +126,7 @@ async def finish_relogin_after_restart(
     from pallas_plugin_protocol.snowluma_qr_capture import account_uses_snowluma_docker
 
     if account_uses_snowluma_docker(account):
-        if not await protocol_manager.wait_account_process_running(
-            qq, timeout_sec=_RELOGIN_PROCESS_WAIT_SEC
-        ):
+        if not await protocol_manager.wait_account_process_running(qq, timeout_sec=_RELOGIN_PROCESS_WAIT_SEC):
             append_text(
                 result,
                 "协议容器启动超时，请稍后在协议端控制台查看或联系管理员。",
@@ -145,9 +134,7 @@ async def finish_relogin_after_restart(
             return
 
         try:
-            meta = await protocol_manager.refresh_account_qrcode(
-                qq, timeout_sec=_RELOGIN_QR_WAIT_SEC
-            )
+            meta = await protocol_manager.refresh_account_qrcode(qq, timeout_sec=_RELOGIN_QR_WAIT_SEC)
         except (KeyError, ValueError) as err:
             append_text(
                 result,
@@ -157,9 +144,7 @@ async def finish_relogin_after_restart(
 
         if str(meta.get("login_mode") or "") == "quick_login":
             append_text(result, "正在登录，请稍候。")
-            if await wait_bot_connected_after_login(
-                protocol_manager, qq, timeout_sec=_RELOGIN_CONNECT_WAIT_SEC
-            ):
+            if await wait_bot_connected_after_login(protocol_manager, qq, timeout_sec=_RELOGIN_CONNECT_WAIT_SEC):
                 append_text(result, "牛牛已重新上线。")
                 return
             append_text(result, "登录超时，请稍后在协议端控制台查看。")
@@ -172,14 +157,11 @@ async def finish_relogin_after_restart(
                 append_qrcode(result, qr_path)
                 return
 
-    qr_path = await protocol_manager.wait_account_qrcode(
-        qq, started_at, timeout_sec=_RELOGIN_QR_WAIT_SEC
-    )
+    qr_path = await protocol_manager.wait_account_qrcode(qq, started_at, timeout_sec=_RELOGIN_QR_WAIT_SEC)
     if qr_path is None:
         append_text(
             result,
-            f"已完成启动，但在 {_RELOGIN_QR_WAIT_SEC} 秒内未检测到新的二维码，"
-            "请寻找号主上报情况。",
+            f"已完成启动，但在 {_RELOGIN_QR_WAIT_SEC} 秒内未检测到新的二维码，请寻找号主上报情况。",
         )
         return
 
@@ -214,18 +196,12 @@ async def run_relogin_restart(
         except (KeyError, ValueError) as err:
             append_text(result, f"重置登录态失败：{err}")
             return
-        await finish_relogin_after_restart(
-            protocol_manager, qq, account, result, started_at=started_at
-        )
+        await finish_relogin_after_restart(protocol_manager, qq, account, result, started_at=started_at)
         return
 
-    if account_uses_snowluma_docker(
-        account
-    ) and protocol_manager._linux_docker_container_running_sync(account):
+    if account_uses_snowluma_docker(account) and protocol_manager._linux_docker_container_running_sync(account):
         append_text(result, "正在恢复登录...")
-        await finish_relogin_after_restart(
-            protocol_manager, qq, account, result, started_at=started_at
-        )
+        await finish_relogin_after_restart(protocol_manager, qq, account, result, started_at=started_at)
         return
 
     append_text(result, "正在启动协议端...")
@@ -235,9 +211,7 @@ async def run_relogin_restart(
         append_text(result, f"启动失败：{err}")
         return
 
-    await finish_relogin_after_restart(
-        protocol_manager, qq, account, result, started_at=started_at
-    )
+    await finish_relogin_after_restart(protocol_manager, qq, account, result, started_at=started_at)
 
 
 async def handle_relogin_message(
@@ -256,9 +230,7 @@ async def handle_relogin_message(
         arg = plain.removeprefix("牛牛重新上号").strip()
         qq = extract_qq(arg)
         if qq:
-            session = ReloginSession(
-                kind="relogin", step="validate_qq", data={"qq": qq}
-            )
+            session = ReloginSession(kind="relogin", step="validate_qq", data={"qq": qq})
             _sessions[key] = session
         else:
             append_text(result, "请回复要重新上号的QQ号：")
@@ -270,13 +242,11 @@ async def handle_relogin_message(
         arg = plain.removeprefix("创建牛牛").strip()
         if arg:
             parts = arg.split()
-            if len(parts) < 3:  # noqa: PLR2004
-                append_text(
-                    result, "参数不足，需要：牛牛昵称 牛牛账号 号主账号（至少一个）"
-                )
+            if len(parts) < 3:
+                append_text(result, "参数不足，需要：牛牛昵称 牛牛账号 号主账号（至少一个）")
                 return result
             display_name, qq, *owner_qqs = parts
-            if not qq.isdigit() or len(qq) < 5:  # noqa: PLR2004
+            if not qq.isdigit() or len(qq) < 5:
                 append_text(result, "牛牛账号格式不正确")
                 return result
             invalid = [oq for oq in owner_qqs if not oq.isdigit()]
@@ -296,9 +266,7 @@ async def handle_relogin_message(
             _sessions[key] = session
         else:
             append_text(result, "请输入牛牛昵称：")
-            _sessions[key] = ReloginSession(
-                kind="create", step="await_name", data={"interactive": True}
-            )
+            _sessions[key] = ReloginSession(kind="create", step="await_name", data={"interactive": True})
             result.session_active = True
             return result
 
@@ -380,9 +348,7 @@ async def handle_relogin_session(
         try:
             from pallas_plugin_protocol import manager as protocol_manager
 
-            protocol_manager.create_account(
-                {"qq": qq, "display_name": nickname, "enabled": True}
-            )
+            protocol_manager.create_account({"qq": qq, "display_name": nickname, "enabled": True})
             append_text(result, f"已创建 {nickname} 并继续上号流程。")
         except Exception as err:
             append_text(result, f"自动创建协议端失败：{err}")
@@ -439,7 +405,7 @@ async def handle_create_session(
             append_text(result, "已取消创建牛牛。")
             return
         qq = plain.strip()
-        if not qq.isdigit() or len(qq) < 5:  # noqa: PLR2004
+        if not qq.isdigit() or len(qq) < 5:
             result.reject_hint = "QQ号格式不正确，请重新输入："
             result.session_active = True
             return
@@ -462,9 +428,7 @@ async def handle_create_session(
             return
         invalid = [oq for oq in owner_qqs if not oq.isdigit()]
         if invalid:
-            result.reject_hint = (
-                f"号主账号格式不正确：{'、'.join(invalid)}，请重新输入："
-            )
+            result.reject_hint = f"号主账号格式不正确：{'、'.join(invalid)}，请重新输入："
             result.session_active = True
             return
         session.data["owner_qqs"] = owner_qqs
@@ -480,9 +444,7 @@ async def handle_create_session(
     owner_qqs = list(session.data.get("owner_qqs") or [])
 
     try:
-        protocol_manager.create_account(
-            {"qq": qq, "display_name": display_name, "enabled": True}
-        )
+        protocol_manager.create_account({"qq": qq, "display_name": display_name, "enabled": True})
     except Exception as err:
         append_text(result, f"创建账号失败：{err}")
         return
@@ -518,11 +480,5 @@ async def handle_create_session(
         append_qrcode(result, qr_path)
 
     owners_str = "、".join(owner_qqs)
-    timeout_hint = (
-        "\n但在 60 秒内未检测到新的二维码文件，请到协议端控制台查看或联系管理员。"
-        if qr_path is None
-        else ""
-    )
-    append_text(
-        result, f"{display_name}：{qq} 已创建并启动。\n号主：{owners_str}{timeout_hint}"
-    )
+    timeout_hint = "\n但在 60 秒内未检测到新的二维码文件，请到协议端控制台查看或联系管理员。" if qr_path is None else ""
+    append_text(result, f"{display_name}：{qq} 已创建并启动。\n号主：{owners_str}{timeout_hint}")

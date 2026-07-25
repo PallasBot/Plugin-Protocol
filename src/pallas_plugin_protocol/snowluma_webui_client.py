@@ -7,10 +7,12 @@ import logging
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import httpx
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +51,7 @@ def generate_snowluma_managed_webui_password() -> str:
     return f"Pa!{core}Xy9"
 
 
-def snowluma_webui_password_candidates(
-    account: dict, log_lines: list[str] | None
-) -> list[str]:
+def snowluma_webui_password_candidates(account: dict, log_lines: list[str] | None) -> list[str]:
     from .snowluma_config import resolve_snowluma_webui_temp_password
 
     out: list[str] = []
@@ -138,9 +138,7 @@ async def snowluma_accept_webui_consent_if_needed(
     return True
 
 
-async def snowluma_webui_login(
-    client: httpx.AsyncClient, base: str, password: str
-) -> SnowlumaWebuiLogin:
+async def snowluma_webui_login(client: httpx.AsyncClient, base: str, password: str) -> SnowlumaWebuiLogin:
     lr = await client.post(
         f"{base}/api/login",
         json={"username": "admin", "password": password},
@@ -212,14 +210,10 @@ async def snowluma_ensure_webui_session(
         active_pwd = pwd
         # SnowLuma 现要求先同意 EULA，再允许 change-password；顺序反了会 403，
         # mustChangePassword 永远无法落盘，托管口令也就写不进 accounts.json。
-        await snowluma_accept_webui_consent_if_needed(
-            client, base, headers=headers, account=account
-        )
+        await snowluma_accept_webui_consent_if_needed(client, base, headers=headers, account=account)
         if login.must_change_password:
             new_pwd = generate_snowluma_managed_webui_password()
-            await snowluma_change_webui_password(
-                client, base, headers, active_pwd, new_pwd
-            )
+            await snowluma_change_webui_password(client, base, headers, active_pwd, new_pwd)
             account["snowluma_managed_webui_password"] = new_pwd
             account_dirty = True
             active_pwd = new_pwd
@@ -227,9 +221,7 @@ async def snowluma_ensure_webui_session(
             headers = login.headers
             if login.must_change_password:
                 raise ValueError("SnowLuma WebUI 改密后仍要求修改密码")
-            await snowluma_accept_webui_consent_if_needed(
-                client, base, headers=headers, account=account
-            )
+            await snowluma_accept_webui_consent_if_needed(client, base, headers=headers, account=account)
 
         probe = await client.get(f"{base}/api/processes", headers=headers)
         if probe.status_code == 403:
@@ -238,9 +230,7 @@ async def snowluma_ensure_webui_session(
                 body = probe.json()
             except Exception:
                 body = {}
-            must_change = isinstance(body, dict) and bool(
-                body.get("mustChangePassword")
-            )
+            must_change = isinstance(body, dict) and bool(body.get("mustChangePassword"))
             if "密码" in detail or must_change:
                 if str(account.get("snowluma_managed_webui_password") or "") == pwd:
                     account.pop("snowluma_managed_webui_password", None)

@@ -24,17 +24,9 @@ class AccountConfigManager:
         account_data_dir = Path(str(account.get("account_data_dir", "")).strip())
         config_dir = account_data_dir / "config"
         config_dir.mkdir(parents=True, exist_ok=True)
-        onebot_path = (
-            self._resolve_onebot_config_path(config_dir, qq)
-            if qq
-            else config_dir / "onebot11_unknown.json"
-        )
-        napcat_uin_path = (
-            config_dir / f"napcat_{qq}.json" if qq else config_dir / "napcat.json"
-        )
-        napcat_path = (
-            napcat_uin_path if napcat_uin_path.exists() else config_dir / "napcat.json"
-        )
+        onebot_path = self._resolve_onebot_config_path(config_dir, qq) if qq else config_dir / "onebot11_unknown.json"
+        napcat_uin_path = config_dir / f"napcat_{qq}.json" if qq else config_dir / "napcat.json"
+        napcat_path = napcat_uin_path if napcat_uin_path.exists() else config_dir / "napcat.json"
         webui_path = config_dir / "webui.json"
         return {
             "paths": {
@@ -52,25 +44,15 @@ class AccountConfigManager:
         account_data_dir = Path(str(account.get("account_data_dir", "")).strip())
         config_dir = account_data_dir / "config"
         config_dir.mkdir(parents=True, exist_ok=True)
-        onebot_path = (
-            self._resolve_onebot_config_path(config_dir, qq)
-            if qq
-            else config_dir / "onebot11_unknown.json"
-        )
-        napcat_uin_path = (
-            config_dir / f"napcat_{qq}.json" if qq else config_dir / "napcat.json"
-        )
-        napcat_path = (
-            napcat_uin_path if napcat_uin_path.exists() else config_dir / "napcat.json"
-        )
+        onebot_path = self._resolve_onebot_config_path(config_dir, qq) if qq else config_dir / "onebot11_unknown.json"
+        napcat_uin_path = config_dir / f"napcat_{qq}.json" if qq else config_dir / "napcat.json"
+        napcat_path = napcat_uin_path if napcat_uin_path.exists() else config_dir / "napcat.json"
 
         if "onebot" in payload and isinstance(payload["onebot"], dict):
             current = self.safe_read_json(onebot_path)
             merged = {**current, **payload["onebot"]}
             for path in self._onebot_sync_targets(config_dir, qq):
-                path.write_text(
-                    json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8"
-                )
+                path.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
             self._sync_account_onebot_fields(account, merged)
         if "napcat" in payload and isinstance(payload["napcat"], dict):
             current = self.safe_read_json(napcat_path)
@@ -78,29 +60,17 @@ class AccountConfigManager:
             napcat_payload = dict(payload["napcat"])
             bypass_enabled = napcat_payload.pop("bypass_enabled", None)
             if isinstance(bypass_enabled, bool):
-                napcat_payload["bypass"] = {
-                    key: bypass_enabled
-                    for key in (
-                        "hook",
-                        "window",
-                        "module",
-                        "process",
-                        "container",
-                        "js",
-                    )
-                }
+                napcat_payload["bypass"] = dict.fromkeys(
+                    ("hook", "window", "module", "process", "container", "js"), bypass_enabled
+                )
             merged = {**current, **napcat_payload}
             merged.pop("bypass_enabled", None)
-            napcat_path.write_text(
-                json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            napcat_path.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
         webui_path = config_dir / "webui.json"
         if "webui" in payload and isinstance(payload["webui"], dict):
             current = self.safe_read_json(webui_path)
             merged = {**current, **payload["webui"]}
-            webui_path.write_text(
-                json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            webui_path.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
             self._sync_account_webui_fields(account, merged)
 
         return self.get_account_configs(account, resolve_qq)
@@ -167,9 +137,7 @@ class AccountConfigManager:
                 seen_paths.add(p)
                 write_targets.append(p)
         for path in write_targets:
-            path.write_text(
-                json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         account["qq"] = qq
         account["onebot_config_path"] = str(config_path)
 
@@ -204,9 +172,7 @@ class AccountConfigManager:
                     "js": True,
                 },
             )
-            config_path.write_text(
-                json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            config_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         account["napcat_config_path"] = str(targets[0])
         self.sync_plugins(config_dir)
         self.sync_webui(account, resolve_qq)
@@ -218,9 +184,7 @@ class AccountConfigManager:
         if data.get("napcat-plugin-builtin") is False:
             return
         data["napcat-plugin-builtin"] = False
-        plugins_path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        plugins_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def sync_webui(self, account: dict, resolve_qq) -> None:
         qq = resolve_qq(account)
@@ -263,9 +227,7 @@ class AccountConfigManager:
             data["token"] = token
         else:
             data.setdefault("token", "")
-        webui_path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        webui_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         account["webui_config_path"] = str(webui_path)
 
     def read_webui_into_account(self, account: dict) -> bool:
@@ -287,11 +249,7 @@ class AccountConfigManager:
         except (TypeError, ValueError):
             return False
         try:
-            cur = (
-                int(account.get("webui_port"))
-                if account.get("webui_port") is not None
-                else None
-            )
+            cur = int(account.get("webui_port")) if account.get("webui_port") is not None else None
         except (TypeError, ValueError):
             cur = None
         if cur != p:
@@ -314,9 +272,7 @@ class AccountConfigManager:
         canonical = config_dir / "onebot11.json"
         if canonical.exists():
             return canonical
-        has_legacy_prefix = any(
-            path.name.startswith("onebot_") for path in config_dir.glob("onebot_*.json")
-        )
+        has_legacy_prefix = any(path.name.startswith("onebot_") for path in config_dir.glob("onebot_*.json"))
         if has_legacy_prefix:
             return config_dir / f"onebot_{qq}.json"
         return config_dir / f"onebot11_{qq}.json"

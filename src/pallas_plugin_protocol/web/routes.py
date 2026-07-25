@@ -69,23 +69,19 @@ def register_pallas_protocol_routes(
     b_norm = base.rstrip("/")
     if b_norm != "/protocol/napcat":
 
-        def _redirect_protocol_napcat_bookmark(
-            request: Request, rest: str
-        ) -> RedirectResponse:
+        def _redirect_protocol_napcat_bookmark(request: Request, rest: str) -> RedirectResponse:
             """旧默认 ``/protocol/napcat`` 书签 → 当前协议管理基路径。"""
             parsed = urlparse(str(request.url))
             suffix = ("/" + rest.lstrip("/")) if (rest or "").strip() else "/"
             new_path = b_norm + suffix
-            dest = urlunparse(
-                (
-                    parsed.scheme,
-                    parsed.netloc,
-                    new_path,
-                    "",
-                    parsed.query,
-                    parsed.fragment,
-                )
-            )
+            dest = urlunparse((
+                parsed.scheme,
+                parsed.netloc,
+                new_path,
+                "",
+                parsed.query,
+                parsed.fragment,
+            ))
             return RedirectResponse(url=dest, status_code=307)
 
         @app.get("/protocol/napcat")
@@ -93,9 +89,7 @@ def register_pallas_protocol_routes(
             return _redirect_protocol_napcat_bookmark(request, "")
 
         @app.get("/protocol/napcat/{rest:path}")
-        async def _legacy_protocol_napcat_subpath(
-            request: Request, rest: str
-        ) -> RedirectResponse:
+        async def _legacy_protocol_napcat_subpath(request: Request, rest: str) -> RedirectResponse:
             return _redirect_protocol_napcat_bookmark(request, rest)
 
     def _auth(
@@ -200,9 +194,7 @@ def register_pallas_protocol_routes(
     ) -> StreamingResponse:
         return await _proxy_instance_http(request, account_id, surface, subpath)
 
-    @app.websocket(
-        f"{console_base}/protocol/instances/{{account_id}}/{{surface}}/{{subpath:path}}"
-    )
+    @app.websocket(f"{console_base}/protocol/instances/{{account_id}}/{{surface}}/{{subpath:path}}")
     async def proxy_instance_websocket(
         websocket: WebSocket,
         account_id: str,
@@ -236,6 +228,7 @@ def register_pallas_protocol_routes(
             return
 
         import contextlib
+
         import websockets
 
         path = target.base_path.rstrip("/") + "/" + subpath.lstrip("/")
@@ -284,9 +277,7 @@ def register_pallas_protocol_routes(
         target: str = "",
         query: str = "",
     ) -> RedirectResponse:
-        return _redirect_to_console_protocol(
-            target, query=query or str(request.url.query or "")
-        )
+        return _redirect_to_console_protocol(target, query=query or str(request.url.query or ""))
 
     @app.get(base)
     @app.get(f"{base}/")
@@ -301,9 +292,7 @@ def register_pallas_protocol_routes(
 
     @app.get(f"{base}/settings")
     async def legacy_protocol_settings(request: Request) -> RedirectResponse:
-        return RedirectResponse(
-            url=f"{_pallas_console_http_base()}/preferences", status_code=307
-        )
+        return RedirectResponse(url=f"{_pallas_console_http_base()}/preferences", status_code=307)
 
     @app.get(f"{base}/new")
     async def legacy_protocol_new_account(request: Request) -> RedirectResponse:
@@ -317,9 +306,7 @@ def register_pallas_protocol_routes(
     async def import_accounts(
         payload: dict[str, Any],
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         from ..importer import run_import
@@ -358,28 +345,18 @@ def register_pallas_protocol_routes(
         return _redirect_legacy_protocol_page(request, target="/assets")
 
     @app.get(f"{base}/account/{{account_id}}/edit")
-    async def legacy_protocol_account_edit(
-        account_id: str, request: Request
-    ) -> RedirectResponse:
+    async def legacy_protocol_account_edit(account_id: str, request: Request) -> RedirectResponse:
         aid = quote(account_id, safe="")
-        return _redirect_legacy_protocol_page(
-            request, target=f"/account/{aid}", query="tab=settings"
-        )
+        return _redirect_legacy_protocol_page(request, target=f"/account/{aid}", query="tab=settings")
 
     @app.get(f"{base}/account/{{account_id}}")
-    async def legacy_protocol_account(
-        account_id: str, request: Request
-    ) -> RedirectResponse:
-        return _redirect_legacy_protocol_page(
-            request, target=f"/account/{quote(account_id, safe='')}"
-        )
+    async def legacy_protocol_account(account_id: str, request: Request) -> RedirectResponse:
+        return _redirect_legacy_protocol_page(request, target=f"/account/{quote(account_id, safe='')}")
 
     @app.get(f"{base}/api/runtime")
     async def runtime_status(
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         return manager.runtime_overview()
@@ -387,9 +364,7 @@ def register_pallas_protocol_routes(
     @app.get(f"{base}/api/connection-hints")
     async def connection_hints(
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         return manager.connection_hints()
@@ -400,9 +375,7 @@ def register_pallas_protocol_routes(
         lines: int = Query(default=400, ge=1, le=2000),
         scope: str = Query(default="all"),
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token, request=request)
         from pallas.console.web import install_nonebot_log_sink
@@ -432,9 +405,7 @@ def register_pallas_protocol_routes(
         request: Request,
         scope: str = Query(default="all"),
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token, request=request)
         from pallas.console.web import install_nonebot_log_sink, iter_nonebot_log_sse
@@ -454,9 +425,7 @@ def register_pallas_protocol_routes(
     @app.post(f"{base}/api/runtime/download")
     async def runtime_download(
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
         tag: str | None = Query(default=None),
         target_platform: str | None = Query(default=None),
         runtime_mode: str | None = Query(default=None),
@@ -476,9 +445,7 @@ def register_pallas_protocol_routes(
     @app.get(f"{base}/api/runtime/profile")
     async def runtime_profile(
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         return {"profile": manager.runtime_profile()}
@@ -487,9 +454,7 @@ def register_pallas_protocol_routes(
     async def update_runtime_profile(
         payload: dict[str, Any],
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         try:
@@ -501,9 +466,7 @@ def register_pallas_protocol_routes(
     async def runtime_docker_pull(
         payload: dict[str, Any] | None = None,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         image = ""
@@ -518,24 +481,18 @@ def register_pallas_protocol_routes(
             description="napcat / snowluma：仅列出当前全局配置对应仓库的本地镜像；不传则列出全部。",
         ),
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         p = str(protocol or "").strip().lower()
         if p and p not in ("napcat", "snowluma"):
-            raise HTTPException(
-                status_code=400, detail="protocol 仅支持 napcat、snowluma 或省略"
-            )
+            raise HTTPException(status_code=400, detail="protocol 仅支持 napcat、snowluma 或省略")
         return await manager.list_local_docker_images(protocol=p or None)
 
     @app.post(f"{base}/api/runtime/docker/stop-all")
     async def runtime_docker_stop_all(
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         return await manager.stop_all_labeled_docker_containers()
@@ -543,9 +500,7 @@ def register_pallas_protocol_routes(
     @app.post(f"{base}/api/runtime/docker/prune-stopped")
     async def runtime_docker_prune_stopped(
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         return await manager.prune_stopped_labeled_docker_containers()
@@ -554,9 +509,7 @@ def register_pallas_protocol_routes(
     async def runtime_releases(
         limit: int = Query(default=10, ge=1, le=200),
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         releases = await manager.fetch_runtime_releases(limit=limit)
@@ -565,9 +518,7 @@ def register_pallas_protocol_routes(
     @app.post(f"{base}/api/runtime/rescan")
     async def runtime_rescan(
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         return manager.rescan_runtime_extract()
@@ -575,9 +526,7 @@ def register_pallas_protocol_routes(
     @app.post(f"{base}/api/runtime/cleanup-dist")
     async def runtime_cleanup_dist(
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         return manager.cleanup_runtime_dist_caches()
@@ -585,9 +534,7 @@ def register_pallas_protocol_routes(
     @app.get(f"{base}/api/runtime/local-inventory")
     async def runtime_local_inventory(
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         return manager.napcat_local_inventory()
@@ -596,9 +543,7 @@ def register_pallas_protocol_routes(
     async def runtime_activate_extract(
         payload: dict[str, Any] | None = None,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         body = payload if isinstance(payload, dict) else {}
@@ -614,9 +559,7 @@ def register_pallas_protocol_routes(
     async def runtime_activate_tag(
         payload: dict[str, Any] | None = None,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         body = payload if isinstance(payload, dict) else {}
@@ -631,9 +574,7 @@ def register_pallas_protocol_routes(
     @app.get(f"{base}/api/snowluma/runtime/overview")
     async def snowluma_runtime_overview(
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         return manager.snowluma_runtime_overview()
@@ -641,17 +582,13 @@ def register_pallas_protocol_routes(
     @app.post(f"{base}/api/snowluma/runtime/download")
     async def snowluma_runtime_download(
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
         tag: str | None = Query(default=None),
         target_platform: str | None = Query(default=None),
     ):
         _auth(x_pallas_protocol_token, token)
         try:
-            return manager.start_snowluma_runtime_download(
-                tag=tag or None, target_platform=target_platform
-            )
+            return manager.start_snowluma_runtime_download(tag=tag or None, target_platform=target_platform)
         except RuntimeError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
 
@@ -659,9 +596,7 @@ def register_pallas_protocol_routes(
     async def snowluma_runtime_releases(
         limit: int = Query(default=10, ge=1, le=200),
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         releases = await manager.fetch_snowluma_runtime_releases(limit=limit)
@@ -670,9 +605,7 @@ def register_pallas_protocol_routes(
     @app.get(f"{base}/api/snowluma/runtime/local-inventory")
     async def snowluma_runtime_local_inventory(
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         return manager.snowluma_local_inventory()
@@ -681,9 +614,7 @@ def register_pallas_protocol_routes(
     async def snowluma_runtime_activate_extract(
         payload: dict[str, Any] | None = None,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         body = payload if isinstance(payload, dict) else {}
@@ -699,9 +630,7 @@ def register_pallas_protocol_routes(
     async def snowluma_runtime_activate_tag(
         payload: dict[str, Any] | None = None,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         body = payload if isinstance(payload, dict) else {}
@@ -716,9 +645,7 @@ def register_pallas_protocol_routes(
     @app.get(f"{base}/api/snowluma/runtimes")
     async def list_snowluma_runtimes(
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         return {"runtimes": await asyncio.to_thread(manager.list_snowluma_runtimes)}
@@ -727,9 +654,7 @@ def register_pallas_protocol_routes(
     async def get_snowluma_runtime(
         runtime_id: str,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         item = await asyncio.to_thread(manager.get_snowluma_runtime, runtime_id)
@@ -741,9 +666,7 @@ def register_pallas_protocol_routes(
     async def create_snowluma_runtime(
         payload: dict[str, Any],
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         try:
@@ -757,15 +680,11 @@ def register_pallas_protocol_routes(
         runtime_id: str,
         payload: dict[str, Any],
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         try:
-            item = await asyncio.to_thread(
-                manager.update_snowluma_runtime, runtime_id, payload
-            )
+            item = await asyncio.to_thread(manager.update_snowluma_runtime, runtime_id, payload)
         except KeyError as e:
             raise HTTPException(status_code=404, detail=str(e)) from e
         except ValueError as e:
@@ -777,9 +696,7 @@ def register_pallas_protocol_routes(
         runtime_id: str,
         force: bool = Query(default=False),
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         try:
@@ -794,9 +711,7 @@ def register_pallas_protocol_routes(
     async def start_snowluma_runtime(
         runtime_id: str,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         try:
@@ -811,9 +726,7 @@ def register_pallas_protocol_routes(
     async def stop_snowluma_runtime(
         runtime_id: str,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         item = await manager.stop_snowluma_runtime(runtime_id)
@@ -824,9 +737,7 @@ def register_pallas_protocol_routes(
     @app.get(f"{base}/api/accounts")
     async def list_accounts(
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         accounts = await asyncio.to_thread(manager.list_accounts)
@@ -835,13 +746,9 @@ def register_pallas_protocol_routes(
     @app.get(f"{base}/api/accounts/{{account_id}}")
     async def get_one_account(
         account_id: str,
-        brief: bool = Query(
-            default=False, description="列表/轮询用：跳过 SnowLuma 日志口令解析等重操作"
-        ),
+        brief: bool = Query(default=False, description="列表/轮询用：跳过 SnowLuma 日志口令解析等重操作"),
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         acc = await asyncio.to_thread(manager.get_account, account_id, brief=brief)
@@ -853,9 +760,7 @@ def register_pallas_protocol_routes(
     async def create_account(
         payload: dict[str, Any],
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         try:
@@ -870,9 +775,7 @@ def register_pallas_protocol_routes(
         payload: dict[str, Any],
         restart: bool = Query(default=True),
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         try:
@@ -887,9 +790,7 @@ def register_pallas_protocol_routes(
     async def delete_account(
         account_id: str,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         try:
@@ -902,9 +803,7 @@ def register_pallas_protocol_routes(
     async def start_account(
         account_id: str,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         try:
@@ -919,9 +818,7 @@ def register_pallas_protocol_routes(
     async def stop_account(
         account_id: str,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         account = await manager.stop_account(account_id)
@@ -933,9 +830,7 @@ def register_pallas_protocol_routes(
     async def restart_account(
         account_id: str,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         try:
@@ -950,9 +845,7 @@ def register_pallas_protocol_routes(
     async def accounts_batch(
         payload: dict[str, Any],
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         body = payload if isinstance(payload, dict) else {}
@@ -969,9 +862,7 @@ def register_pallas_protocol_routes(
                 action,
                 ids,
                 mode=str(mode).strip().lower() if mode is not None else None,
-                max_concurrency=int(max_concurrency)
-                if max_concurrency is not None
-                else None,
+                max_concurrency=int(max_concurrency) if max_concurrency is not None else None,
                 stagger_ms=int(stagger_ms) if stagger_ms is not None else None,
             )
         except KeyError as e:
@@ -985,9 +876,7 @@ def register_pallas_protocol_routes(
     async def migrate_accounts_to_snowluma(
         payload: dict[str, Any],
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         body = payload if isinstance(payload, dict) else {}
@@ -1007,9 +896,7 @@ def register_pallas_protocol_routes(
                 stop_napcat_containers=stop_nc,
                 start_after=start_after,
                 stagger_ms=int(stagger_ms) if stagger_ms is not None else None,
-                max_concurrency=int(max_concurrency)
-                if max_concurrency is not None
-                else None,
+                max_concurrency=int(max_concurrency) if max_concurrency is not None else None,
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
@@ -1018,9 +905,7 @@ def register_pallas_protocol_routes(
     @app.get(f"{base}/api/snowluma/host-deps")
     async def snowluma_host_deps(
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         from ..snowluma_host_deps import host_deps_report
@@ -1031,9 +916,7 @@ def register_pallas_protocol_routes(
     async def accounts_batch_status(
         job_id: str,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         job = manager.batch_coordinator().job_to_dict(job_id)
@@ -1045,9 +928,7 @@ def register_pallas_protocol_routes(
     async def accounts_batch_stream(
         job_id: str,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         if manager.batch_coordinator().get_job(job_id) is None:
@@ -1071,9 +952,7 @@ def register_pallas_protocol_routes(
     async def snowluma_inject_hook(
         account_id: str,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         try:
@@ -1083,26 +962,20 @@ def register_pallas_protocol_routes(
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         except httpx.HTTPError as e:
-            raise HTTPException(
-                status_code=502, detail=f"连接 SnowLuma WebUI 失败: {e}"
-            ) from e
+            raise HTTPException(status_code=502, detail=f"连接 SnowLuma WebUI 失败: {e}") from e
 
     @app.get(f"{base}/api/accounts/{{account_id}}/logs")
     async def account_logs(
         account_id: str,
         lines: int = Query(default=200, ge=1, le=2000),
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         if not manager.has_account(account_id):
             raise HTTPException(status_code=404, detail="账号不存在")
         try:
-            await asyncio.wait_for(
-                manager.ensure_docker_logs_if_needed(account_id), timeout=2.5
-            )
+            await asyncio.wait_for(manager.ensure_docker_logs_if_needed(account_id), timeout=2.5)
         except TimeoutError:
             pass
         logs = await asyncio.to_thread(manager.tail_logs, account_id, lines)
@@ -1112,9 +985,7 @@ def register_pallas_protocol_routes(
     async def account_qrcode_meta(
         account_id: str,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         if not manager.has_account(account_id):
@@ -1125,9 +996,7 @@ def register_pallas_protocol_routes(
     async def refresh_account_qrcode(
         account_id: str,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         if not manager.has_account(account_id):
@@ -1143,9 +1012,7 @@ def register_pallas_protocol_routes(
     async def account_qrcode_image(
         account_id: str,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         if not manager.has_account(account_id):
@@ -1153,17 +1020,13 @@ def register_pallas_protocol_routes(
         path = await asyncio.to_thread(manager.account_qrcode_path, account_id)
         if path is None:
             raise HTTPException(status_code=404, detail="暂无二维码文件")
-        return FileResponse(
-            path, media_type="image/png", filename=f"{account_id}-qrcode.png"
-        )
+        return FileResponse(path, media_type="image/png", filename=f"{account_id}-qrcode.png")
 
     @app.get(f"{base}/api/accounts/{{account_id}}/configs")
     async def get_account_configs(
         account_id: str,
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         try:
@@ -1177,15 +1040,11 @@ def register_pallas_protocol_routes(
         payload: dict[str, Any],
         restart: bool = Query(default=True),
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         try:
-            return await manager.update_account_configs(
-                account_id, payload, restart=restart
-            )
+            return await manager.update_account_configs(account_id, payload, restart=restart)
         except KeyError as e:
             raise HTTPException(status_code=404, detail=str(e)) from e
         except RuntimeError as e:
@@ -1196,9 +1055,7 @@ def register_pallas_protocol_routes(
         account_id: str,
         payload: dict[str, Any],
         token: str | None = Query(default=None),
-        x_pallas_protocol_token: str | None = Header(
-            default=None, alias="X-Pallas-Protocol-Token"
-        ),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
         try:

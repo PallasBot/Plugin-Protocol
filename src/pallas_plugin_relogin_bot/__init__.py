@@ -13,23 +13,23 @@ from nonebot.params import ArgPlainText, CommandArg
 from nonebot.permission import SUPERUSER
 from nonebot.plugin import PluginMetadata
 from nonebot.typing import T_State
-
-from pallas.api.perm import private_message_permission_for_command
+from pallas.api.config import user_is_bot_admin
 from pallas.api.metadata import (
     PLUGIN_EXTRA_VERSION,
     PLUGIN_HOMEPAGE,
     PLUGIN_MENU_TEMPLATE,
+    SCENE_PRIVATE,
+    join_usage,
+    usage_line,
 )
-from pallas.api.metadata import SCENE_PRIVATE, join_usage, usage_line
-from pallas.api.config import user_is_bot_admin
+from pallas.api.perm import private_message_permission_for_command
+from pallas.api.platform import is_hub_role
 from pallas.api.utils import reply_private_message
 from pallas.core.foundation.db import make_bot_config_repository
-from pallas.api.platform import is_hub_role
 from pallas.product.llm.knowledge.declare import knowledge_source_row
 
 if is_hub_role():
     from nonebot import get_app
-
     from pallas.core.platform.shard.coord.relogin_hub_routes import (
         mount_relogin_hub_routes,
     )
@@ -38,7 +38,7 @@ if is_hub_role():
 
 from pallas_plugin_protocol import manager as protocol_manager
 
-__all__ = ["relogin_cmd", "create_cmd"]
+__all__ = ["create_cmd", "relogin_cmd"]
 
 __plugin_meta__ = PluginMetadata(
     name="牛牛重新上号",
@@ -101,10 +101,7 @@ __plugin_meta__ = PluginMetadata(
                     },
                     {
                         "title": "创建牛牛",
-                        "content": (
-                            "超管私聊「创建牛牛 …」可在协议端新建实例并回传二维码；"
-                            "属于维护者向操作。"
-                        ),
+                        "content": ("超管私聊「创建牛牛 …」可在协议端新建实例并回传二维码；属于维护者向操作。"),
                         "keywords": "创建牛牛,新建,超管,实例",
                     },
                     {
@@ -151,9 +148,7 @@ def _extract_qq(arg: str) -> str:
 
 
 @relogin_cmd.handle()
-async def _relogin_handle(
-    event: MessageEvent, state: T_State, args: Message = CommandArg()
-):  # noqa: B008
+async def _relogin_handle(event: MessageEvent, state: T_State, args: Message = CommandArg()):
     if not isinstance(event, PrivateMessageEvent):
         await relogin_cmd.finish("请私聊使用该命令。")
 
@@ -165,9 +160,7 @@ async def _relogin_handle(
 
 
 @relogin_cmd.got("qq")
-async def _relogin_got_qq(
-    bot: Bot, event: MessageEvent, state: T_State, qq_input: str = ArgPlainText("qq")
-):  # noqa: B008
+async def _relogin_got_qq(bot: Bot, event: MessageEvent, state: T_State, qq_input: str = ArgPlainText("qq")):
     if qq_input.strip() in _CANCEL_WORDS:
         await relogin_cmd.finish("已取消重新上号。")
 
@@ -197,7 +190,7 @@ async def _relogin_got_nickname(
     bot: Bot,
     event: MessageEvent,
     state: T_State,
-    nickname_input: str = ArgPlainText("nickname"),  # noqa: B008
+    nickname_input: str = ArgPlainText("nickname"),
 ):
     qq: str = state["_qq"]
     needs_create: bool = state.get("_needs_create", False)
@@ -209,12 +202,8 @@ async def _relogin_got_nickname(
         if not nickname:
             await relogin_cmd.reject("昵称不能为空，请重新输入：")
         try:
-            protocol_manager.create_account(
-                {"qq": qq, "display_name": nickname, "enabled": True}
-            )
-            await reply_private_message(
-                bot, event, f"已创建 {nickname} 并继续上号流程。"
-            )
+            protocol_manager.create_account({"qq": qq, "display_name": nickname, "enabled": True})
+            await reply_private_message(bot, event, f"已创建 {nickname} 并继续上号流程。")
         except Exception as e:
             await relogin_cmd.finish(f"自动创建协议端失败：{e}")
 
@@ -232,9 +221,7 @@ async def _relogin_got_nickname(
 
     qr_path = await protocol_manager.wait_account_qrcode(qq, started_at)
     if qr_path is None:
-        await relogin_cmd.finish(
-            "已完成启动，但在 60 秒内未检测到新的二维码文件，请寻找号主上报情况"
-        )
+        await relogin_cmd.finish("已完成启动，但在 60 秒内未检测到新的二维码文件，请寻找号主上报情况")
 
     try:
         qr_bytes = qr_path.read_bytes()
@@ -245,21 +232,17 @@ async def _relogin_got_nickname(
 
 
 @create_cmd.handle()
-async def _create_handle(
-    event: MessageEvent, state: T_State, args: Message = CommandArg()
-):  # noqa: B008
+async def _create_handle(event: MessageEvent, state: T_State, args: Message = CommandArg()):
     if not isinstance(event, PrivateMessageEvent):
         await create_cmd.finish("请私聊使用该命令。")
 
     text = args.extract_plain_text().strip()
     if text:
         parts = text.split()
-        if len(parts) < 3:  # noqa: PLR2004
-            await create_cmd.finish(
-                "参数不足，需要：牛牛昵称 牛牛账号 号主账号（至少一个）"
-            )
+        if len(parts) < 3:
+            await create_cmd.finish("参数不足，需要：牛牛昵称 牛牛账号 号主账号（至少一个）")
         display_name, qq, *owner_qqs = parts
-        if not qq.isdigit() or len(qq) < 5:  # noqa: PLR2004
+        if not qq.isdigit() or len(qq) < 5:
             await create_cmd.finish("牛牛账号格式不正确")
         invalid = [oq for oq in owner_qqs if not oq.isdigit()]
         if invalid:
@@ -275,9 +258,7 @@ async def _create_handle(
 
 
 @create_cmd.got("display_name")
-async def _create_got_name(
-    state: T_State, display_name_input: str = ArgPlainText("display_name")
-):  # noqa: B008
+async def _create_got_name(state: T_State, display_name_input: str = ArgPlainText("display_name")):
     if display_name_input.strip() in _CANCEL_WORDS:
         await create_cmd.finish("已取消创建牛牛。")
     if not display_name_input.strip():
@@ -287,11 +268,11 @@ async def _create_got_name(
 
 
 @create_cmd.got("qq")
-async def _create_got_qq(state: T_State, qq_input: str = ArgPlainText("qq")):  # noqa: B008
+async def _create_got_qq(state: T_State, qq_input: str = ArgPlainText("qq")):
     if qq_input.strip() in _CANCEL_WORDS:
         await create_cmd.finish("已取消创建牛牛。")
     qq = qq_input.strip()
-    if not qq.isdigit() or len(qq) < 5:  # noqa: PLR2004
+    if not qq.isdigit() or len(qq) < 5:
         await create_cmd.reject("QQ号格式不正确，请重新输入：")
     if state.get("_interactive"):
         await create_cmd.send("请输入号主QQ号（如有多个用空格分隔）：")
@@ -301,7 +282,7 @@ async def _create_got_qq(state: T_State, qq_input: str = ArgPlainText("qq")):  #
 async def _create_got_owners(
     bot: Bot,
     event: MessageEvent,
-    display_name_input: str = ArgPlainText("display_name"),  # noqa: B008
+    display_name_input: str = ArgPlainText("display_name"),
     qq_input: str = ArgPlainText("qq"),
     owners_input: str = ArgPlainText("owners"),
 ):
@@ -314,17 +295,13 @@ async def _create_got_owners(
 
     invalid = [oq for oq in owner_qqs if not oq.isdigit()]
     if invalid:
-        await create_cmd.reject(
-            f"号主账号格式不正确：{'、'.join(invalid)}，请重新输入："
-        )
+        await create_cmd.reject(f"号主账号格式不正确：{'、'.join(invalid)}，请重新输入：")
 
     display_name = display_name_input.strip()
     qq = qq_input.strip()
 
     try:
-        protocol_manager.create_account(
-            {"qq": qq, "display_name": display_name, "enabled": True}
-        )
+        protocol_manager.create_account({"qq": qq, "display_name": display_name, "enabled": True})
     except Exception as e:
         await create_cmd.finish(f"创建账号失败：{e}")
 
@@ -360,11 +337,5 @@ async def _create_got_owners(
             await reply_private_message(bot, event, f"二维码读取失败：{e}")
 
     owners_str = "、".join(owner_qqs)
-    timeout_hint = (
-        "\n但在 60 秒内未检测到新的二维码文件，请到协议端控制台查看或联系管理员。"
-        if qr_path is None
-        else ""
-    )
-    await create_cmd.finish(
-        f"{display_name}：{qq} 已创建并启动。\n号主：{owners_str}{timeout_hint}"
-    )
+    timeout_hint = "\n但在 60 秒内未检测到新的二维码文件，请到协议端控制台查看或联系管理员。" if qr_path is None else ""
+    await create_cmd.finish(f"{display_name}：{qq} 已创建并启动。\n号主：{owners_str}{timeout_hint}")

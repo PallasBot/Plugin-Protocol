@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from .contract import (
     ACCOUNT_PROTOCOL_BACKEND_KEY,
@@ -13,6 +12,9 @@ from .contract import (
 from .linux_docker import docker_container_name
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
     from .launch_manager import LaunchManager
 
 NAPCAT_BACKEND = "napcat"
@@ -32,9 +34,7 @@ def snowluma_fresh_account_data_dir(instances_root: Path, account_id: str) -> Pa
 
 
 def is_napcat_account(account: dict) -> bool:
-    bk = (
-        str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY) or NAPCAT_BACKEND).strip().lower()
-    )
+    bk = str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY) or NAPCAT_BACKEND).strip().lower()
     return bk == NAPCAT_BACKEND
 
 
@@ -59,9 +59,7 @@ def prepare_account_for_snowluma_migration(
     account.pop(MANAGED_RUNTIME_TAG_KEY, None)
     aid = str(account.get("id", "") or "").strip()
     if not preserve_napcat_data and aid:
-        account["account_data_dir"] = str(
-            snowluma_fresh_account_data_dir(instances_root, aid)
-        )
+        account["account_data_dir"] = str(snowluma_fresh_account_data_dir(instances_root, aid))
 
 
 def migrate_account_dict_to_snowluma(
@@ -81,8 +79,4 @@ def migrate_account_dict_to_snowluma(
 
 
 def list_napcat_account_ids(accounts: dict[str, dict]) -> list[str]:
-    return [
-        aid
-        for aid, acc in accounts.items()
-        if is_napcat_account(acc) and bool(acc.get("enabled", True))
-    ]
+    return [aid for aid, acc in accounts.items() if is_napcat_account(acc) and bool(acc.get("enabled", True))]

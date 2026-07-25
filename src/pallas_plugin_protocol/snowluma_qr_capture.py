@@ -72,28 +72,23 @@ def account_qrcode_cache_path_for_qq(account_data_dir: Path, qq: str) -> Path:
 def resolve_snowluma_docker_container_name(account: dict) -> str:
     rid = str(account.get("snowluma_runtime_id") or "").strip()
     if rid:
-        return snowluma_docker_container_name_for_runtime(
-            {
-                "id": rid,
-                "legacy_container_account_id": str(
-                    account.get("snowluma_runtime_legacy_container_account_id") or ""
-                ).strip(),
-            }
-        )
+        return snowluma_docker_container_name_for_runtime({
+            "id": rid,
+            "legacy_container_account_id": str(
+                account.get("snowluma_runtime_legacy_container_account_id") or ""
+            ).strip(),
+        })
     return snowluma_docker_container_name(account)
 
 
 def account_uses_snowluma_docker(account: dict) -> bool:
     bk = str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY) or "napcat").strip().lower()
-    return bk == SNOWLUMA_PROTOCOL_BACKEND and bool(
-        account.get("snowluma_linux_docker")
-    )
+    return bk == SNOWLUMA_PROTOCOL_BACKEND and bool(account.get("snowluma_linux_docker"))
 
 
 def snowluma_qr_capture_display(config: Any | None) -> str:
     raw = str(
-        getattr(config, "pallas_protocol_snowluma_qr_capture_display", DEFAULT_DISPLAY)
-        or DEFAULT_DISPLAY
+        getattr(config, "pallas_protocol_snowluma_qr_capture_display", DEFAULT_DISPLAY) or DEFAULT_DISPLAY
     ).strip()
     return raw or DEFAULT_DISPLAY
 
@@ -102,9 +97,7 @@ def snowluma_qr_capture_initial_delay(config: Any | None) -> float:
     if config is None:
         return INITIAL_DELAY_SEC
     try:
-        raw = getattr(
-            config, "pallas_protocol_snowluma_qr_capture_initial_delay_s", None
-        )
+        raw = getattr(config, "pallas_protocol_snowluma_qr_capture_initial_delay_s", None)
         if raw is None:
             return INITIAL_DELAY_SEC
         return float(raw)
@@ -205,9 +198,7 @@ def xmessage_is_known_dismissable(
         ],
         display=display,
     )
-    return OCR_UNAVAILABLE_SENTINEL not in text and is_known_dismissable_xmessage_text(
-        text
-    )
+    return OCR_UNAVAILABLE_SENTINEL not in text and is_known_dismissable_xmessage_text(text)
 
 
 def is_known_qq_login_failure_text(text: str) -> bool:
@@ -401,12 +392,8 @@ def click_qq_login_window(
     """点击已确认的 QQ 一键登录蓝色按钮。"""
     exec_runner = run_exec or _docker_exec
     text_runner = run_exec_text or _docker_exec_text
-    if not _command_available_in_container(
-        container_name, "xdotool", display=display, run_exec_text=text_runner
-    ):
-        logger.info(
-            "SnowLuma 容器 {} 未安装 xdotool，无法自动点击「登录」", container_name
-        )
+    if not _command_available_in_container(container_name, "xdotool", display=display, run_exec_text=text_runner):
+        logger.info("SnowLuma 容器 {} 未安装 xdotool，无法自动点击「登录」", container_name)
         return False
     click_x = max(1, int(width * 0.5))
     click_y = max(1, int(height * QQ_LOGIN_QUICK_CLICK_Y_RATIO))
@@ -432,9 +419,7 @@ def click_qq_auto_login_checkbox(
     """勾选扫码/登录页「自动登录」，便于容器重建后 QQ 自行保持会话。"""
     exec_runner = run_exec or _docker_exec
     text_runner = run_exec_text or _docker_exec_text
-    if not _command_available_in_container(
-        container_name, "xdotool", display=display, run_exec_text=text_runner
-    ):
+    if not _command_available_in_container(container_name, "xdotool", display=display, run_exec_text=text_runner):
         logger.info(
             "SnowLuma 容器 {} 未安装 xdotool，无法勾选「自动登录」",
             container_name,
@@ -474,9 +459,7 @@ def qq_auto_login_checkbox_is_checked(
     except Exception:
         return False
     center_x = max(1, min(image.width - 1, int(width * QQ_AUTO_LOGIN_CHECKBOX_X_RATIO)))
-    center_y = max(
-        1, min(image.height - 1, int(height * QQ_AUTO_LOGIN_CHECKBOX_Y_RATIO))
-    )
+    center_y = max(1, min(image.height - 1, int(height * QQ_AUTO_LOGIN_CHECKBOX_Y_RATIO)))
     blue_pixels = 0
     for x in range(max(0, center_x - 7), min(image.width, center_x + 8)):
         for y in range(max(0, center_y - 7), min(image.height, center_y + 8)):
@@ -684,17 +667,13 @@ def extract_qr_png_from_screen(png_bytes: bytes) -> bytes | None:
     try:
         from PIL import Image
     except ImportError:
-        logger.warning(
-            "SnowLuma QR capture 需要 pillow，请安装 pallas-plugin-protocol 依赖"
-        )
+        logger.warning("SnowLuma QR capture 需要 pillow，请安装 pallas-plugin-protocol 依赖")
         return None
 
     try:
         from pyzbar.pyzbar import decode as pyzbar_decode  # noqa: F401
     except ImportError:
-        logger.warning(
-            "SnowLuma QR capture 需要 pyzbar（及系统 libzbar），无法识别二维码"
-        )
+        logger.warning("SnowLuma QR capture 需要 pyzbar（及系统 libzbar），无法识别二维码")
         return None
 
     img = Image.open(io.BytesIO(png_bytes))
@@ -898,11 +877,7 @@ async def wait_and_restore_snowluma_qq_login(
     prefer_quick_login: bool = True,
 ) -> dict[str, Any]:
     """容器起来后轮询：优先一键登录；直到成功或超时。"""
-    delay = (
-        initial_delay_sec
-        if initial_delay_sec is not None
-        else snowluma_qr_capture_initial_delay(config)
-    )
+    delay = initial_delay_sec if initial_delay_sec is not None else snowluma_qr_capture_initial_delay(config)
     if delay > 0:
         await asyncio.sleep(delay)
 
@@ -940,11 +915,7 @@ async def wait_and_capture_snowluma_qrcode(
     if not account_data_dir:
         return None
 
-    delay = (
-        initial_delay_sec
-        if initial_delay_sec is not None
-        else snowluma_qr_capture_initial_delay(config)
-    )
+    delay = initial_delay_sec if initial_delay_sec is not None else snowluma_qr_capture_initial_delay(config)
     if delay > 0:
         await asyncio.sleep(delay)
 
@@ -958,9 +929,7 @@ async def wait_and_capture_snowluma_qrcode(
         )
         if captured is not None and captured.is_file():
             try:
-                mtime = datetime.fromtimestamp(
-                    captured.stat().st_mtime, tz=since.tzinfo
-                )
+                mtime = datetime.fromtimestamp(captured.stat().st_mtime, tz=since.tzinfo)
                 payload = captured.read_bytes()
                 if mtime >= since and payload and payload != last_payload:
                     return captured

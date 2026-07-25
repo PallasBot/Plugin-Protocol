@@ -24,9 +24,7 @@ _SNOWLUMA_INITIAL_CREDS_LOG_RE = re.compile(
     re.IGNORECASE,
 )
 # OneBot 默认反向连接
-_SNOWLUMA_DEFAULT_WS_URL = urlunsplit(
-    ("ws", "127.0.0.1:8088", "/onebot/v11/ws", "", "")
-)
+_SNOWLUMA_DEFAULT_WS_URL = urlunsplit(("ws", "127.0.0.1:8088", "/onebot/v11/ws", "", ""))
 
 
 def snowluma_onebot_path(config_dir: Path, qq: str) -> Path:
@@ -40,21 +38,15 @@ def snowluma_docker_onebot_path(account: dict, qq: str) -> Path | None:
     return data_dir / "config" / f"onebot_{qq}.json"
 
 
-def resolve_snowluma_ws_client_url(
-    account: dict, *, plugin_config: Any | None = None
-) -> str:
+def resolve_snowluma_ws_client_url(account: dict, *, plugin_config: Any | None = None) -> str:
     ws_url = str(account.get("ws_url", "")).strip()
     url_out = ws_url or _SNOWLUMA_DEFAULT_WS_URL
     if bool(account.get("snowluma_linux_docker")) and plugin_config is not None:
         dh = effective_docker_onebot_host(
-            str(
-                getattr(plugin_config, "pallas_protocol_docker_onebot_host", "") or ""
-            ).strip(),
+            str(getattr(plugin_config, "pallas_protocol_docker_onebot_host", "") or "").strip(),
             docker_network_mode="bridge",
         )
-        if is_plain_ws_url(url_out) and ws_url_host_should_rewrite_for_docker_bridge(
-            url_out
-        ):
+        if is_plain_ws_url(url_out) and ws_url_host_should_rewrite_for_docker_bridge(url_out):
             rw = rewrite_onebot_ws_url_for_container(url_out, dh)
             if rw:
                 url_out = rw
@@ -74,9 +66,7 @@ def build_snowluma_ws_client_entry(account: dict, url_out: str) -> dict[str, Any
     }
 
 
-def merge_snowluma_docker_snapshot_ws_clients(
-    data: dict[str, Any], client_entry: dict[str, Any]
-) -> dict[str, Any]:
+def merge_snowluma_docker_snapshot_ws_clients(data: dict[str, Any], client_entry: dict[str, Any]) -> dict[str, Any]:
     """将 wsClients 写入 SnowLuma Docker 使用的 snapshot 格式 onebot 配置。"""
     out = dict(data) if isinstance(data, dict) else {}
     out.setdefault("mode", "snapshot")
@@ -157,11 +147,7 @@ def sync_snowluma_runtime_json(
     else:
         port_raw = account.get("webui_port")
         try:
-            port = (
-                int(port_raw)
-                if port_raw is not None and str(port_raw).strip() != ""
-                else 0
-            )
+            port = int(port_raw) if port_raw is not None and str(port_raw).strip() != "" else 0
         except (TypeError, ValueError):
             port = 0
         if not (1 <= port <= 65535):
@@ -225,9 +211,7 @@ def sync_snowluma_onebot(
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     account["onebot_config_path"] = str(path)
     if bool(account.get("snowluma_linux_docker")):
-        sync_snowluma_onebot_docker_snapshot(
-            cfg, account, resolve_qq, plugin_config=plugin_config
-        )
+        sync_snowluma_onebot_docker_snapshot(cfg, account, resolve_qq, plugin_config=plugin_config)
 
 
 _RUNTIME_WEBUI_SECRET_KEYS: tuple[str, ...] = (
@@ -281,9 +265,7 @@ def snowluma_webui_log_paths(account: dict) -> list[Path]:
     return out
 
 
-def read_snowluma_webui_log_lines_from_files(
-    account: dict, *, max_lines: int = 900
-) -> list[str]:
+def read_snowluma_webui_log_lines_from_files(account: dict, *, max_lines: int = 900) -> list[str]:
     cap = max(1, int(max_lines))
     merged: list[str] = []
     for path in snowluma_webui_log_paths(account):
@@ -341,9 +323,7 @@ def extract_snowluma_webui_temp_password_from_log_files(account: dict) -> str | 
     return None
 
 
-def resolve_snowluma_webui_temp_password(
-    account: dict, log_lines: list[str] | None
-) -> str | None:
+def resolve_snowluma_webui_temp_password(account: dict, log_lines: list[str] | None) -> str | None:
     """从进程/落盘日志解析初始口令（SnowLuma 官方将口令以 scrypt 写入 ``webui.json``，无明文可读）。
 
     首次启动前可在协议页「一次性初始密码」写入 ``webui.json``，则无需依赖日志。
@@ -381,11 +361,7 @@ def read_snowluma_runtime_into_account(account: dict) -> bool:
     except (TypeError, ValueError):
         return False
     try:
-        cur = (
-            int(account.get("webui_port"))
-            if account.get("webui_port") is not None
-            else None
-        )
+        cur = int(account.get("webui_port")) if account.get("webui_port") is not None else None
     except (TypeError, ValueError):
         cur = None
     if cur == p:
@@ -398,11 +374,7 @@ def get_snowluma_account_configs(cfg: Any, account: dict, resolve_qq: Any) -> di
     qq = resolve_qq(account)
     account_data_dir = Path(str(account.get("account_data_dir", "")).strip())
     config_dir = account_data_dir / "config"
-    ob_path = (
-        snowluma_onebot_path(config_dir, qq)
-        if qq
-        else config_dir / "onebot_unknown.json"
-    )
+    ob_path = snowluma_onebot_path(config_dir, qq) if qq else config_dir / "onebot_unknown.json"
     rt_path = config_dir / "runtime.json"
     return {
         "paths": {
@@ -426,24 +398,16 @@ def update_snowluma_account_configs(
     config_dir.mkdir(parents=True, exist_ok=True)
 
     if "onebot" in payload and isinstance(payload["onebot"], dict):
-        ob_path = (
-            snowluma_onebot_path(config_dir, qq)
-            if qq
-            else config_dir / "onebot_unknown.json"
-        )
+        ob_path = snowluma_onebot_path(config_dir, qq) if qq else config_dir / "onebot_unknown.json"
         current = cfg.safe_read_json(ob_path)
         merged = {**current, **payload["onebot"]}
-        ob_path.write_text(
-            json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        ob_path.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
 
     if "runtime" in payload and isinstance(payload["runtime"], dict):
         rt_path = config_dir / "runtime.json"
         current = cfg.safe_read_json(rt_path)
         merged = {**current, **payload["runtime"]}
-        rt_path.write_text(
-            json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        rt_path.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
         # Linux Docker：runtime.webuiPort 为容器内监听端口，账号 webui_port 为宿主机映射，勿混写。
         if not bool(account.get("snowluma_linux_docker")):
             try:
@@ -463,10 +427,10 @@ __all__ = [
     "extract_snowluma_webui_temp_password_from_log_lines",
     "get_snowluma_account_configs",
     "merge_snowluma_docker_snapshot_ws_clients",
+    "read_snowluma_runtime_into_account",
     "read_snowluma_runtime_webui_password",
     "read_snowluma_webui_log_lines_from_files",
     "resolve_snowluma_webui_temp_password",
-    "read_snowluma_runtime_into_account",
     "resolve_snowluma_ws_client_url",
     "snowluma_docker_onebot_path",
     "snowluma_onebot_path",

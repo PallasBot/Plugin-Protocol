@@ -37,12 +37,8 @@ def resolve_batch_account_ids(
 
 def batch_defaults_from_config(config: Config) -> dict[str, int | float | str]:
     return {
-        "max_concurrency": int(
-            getattr(config, "pallas_protocol_restart_max_concurrency", 2)
-        ),
-        "stagger_ms": int(
-            float(getattr(config, "pallas_protocol_restart_stagger_s", 3.0)) * 1000
-        ),
+        "max_concurrency": int(getattr(config, "pallas_protocol_restart_max_concurrency", 2)),
+        "stagger_ms": int(float(getattr(config, "pallas_protocol_restart_stagger_s", 3.0)) * 1000),
         "mode": BatchMode.ROLLING.value,
     }
 
@@ -68,9 +64,7 @@ async def start_account_batch_job(
         batch_mode = BatchMode(mode_raw)
     except ValueError as e:
         raise ValueError("mode 须为 rolling 或 parallel") from e
-    mc = int(
-        max_concurrency if max_concurrency is not None else defaults["max_concurrency"]
-    )
+    mc = int(max_concurrency if max_concurrency is not None else defaults["max_concurrency"])
     sm = int(stagger_ms if stagger_ms is not None else defaults["stagger_ms"])
     return await coordinator.start_job(
         batch_action,
@@ -103,4 +97,4 @@ def log_batch_job_failures(
     for item in job.results:
         if item.ok:
             continue
-        logger.warning(f"{prefix} 账号 {item.account_id} 失败：{item.error}")
+        logger.warning("{} 账号 {} 失败：{}", prefix, item.account_id, item.error)

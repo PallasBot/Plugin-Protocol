@@ -22,9 +22,7 @@ class ProtocolRuntimeBackend(Protocol):
         """创建账号数据目录等。"""
         ...
 
-    def sync_all_configs(
-        self, account: dict, resolve_qq: Callable[[dict], str]
-    ) -> None:
+    def sync_all_configs(self, account: dict, resolve_qq: Callable[[dict], str]) -> None:
         """写入协议栈所需的全部配置文件。"""
         ...
 
@@ -34,17 +32,13 @@ class ProtocolRuntimeBackend(Protocol):
 
     def read_webui_into_account(self, account: dict) -> bool: ...
 
-    def get_account_configs(
-        self, account: dict, resolve_qq: Callable[[dict], str]
-    ) -> dict[str, Any]: ...
+    def get_account_configs(self, account: dict, resolve_qq: Callable[[dict], str]) -> dict[str, Any]: ...
 
     def update_account_configs(
         self, account: dict, payload: dict, resolve_qq: Callable[[dict], str]
     ) -> dict[str, Any]: ...
 
-    def check_launch_issues(
-        self, account: dict, resolve_qq: Callable[[dict], str]
-    ) -> list[str]: ...
+    def check_launch_issues(self, account: dict, resolve_qq: Callable[[dict], str]) -> list[str]: ...
 
     def describe_account_data_paths(self, account: dict) -> dict[str, object]: ...
 

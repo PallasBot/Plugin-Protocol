@@ -24,9 +24,7 @@ class NapcatRuntimeBackend:
     def prepare_dirs(self, account: dict) -> None:
         self._service._launch.prepare_dirs(account)
 
-    def sync_all_configs(
-        self, account: dict, resolve_qq: Callable[[dict], str]
-    ) -> None:
+    def sync_all_configs(self, account: dict, resolve_qq: Callable[[dict], str]) -> None:
         self._service._configs.sync_onebot(account, resolve_qq)
         self._service._configs.sync_napcat_core(account, resolve_qq)
         self._service._configs.sync_webui(account, resolve_qq)
@@ -40,21 +38,13 @@ class NapcatRuntimeBackend:
     def read_webui_into_account(self, account: dict) -> bool:
         return self._service._configs.read_webui_into_account(account)
 
-    def get_account_configs(
-        self, account: dict, resolve_qq: Callable[[dict], str]
-    ) -> dict[str, Any]:
+    def get_account_configs(self, account: dict, resolve_qq: Callable[[dict], str]) -> dict[str, Any]:
         return self._service._configs.get_account_configs(account, resolve_qq)
 
-    def update_account_configs(
-        self, account: dict, payload: dict, resolve_qq: Callable[[dict], str]
-    ) -> dict[str, Any]:
-        return self._service._configs.update_account_configs(
-            account, payload, resolve_qq
-        )
+    def update_account_configs(self, account: dict, payload: dict, resolve_qq: Callable[[dict], str]) -> dict[str, Any]:
+        return self._service._configs.update_account_configs(account, payload, resolve_qq)
 
-    def check_launch_issues(
-        self, account: dict, resolve_qq: Callable[[dict], str]
-    ) -> list[str]:
+    def check_launch_issues(self, account: dict, resolve_qq: Callable[[dict], str]) -> list[str]:
         return self._service._launch.check_launch_issues(account, resolve_qq)
 
     def describe_account_data_paths(self, account: dict) -> dict[str, object]:

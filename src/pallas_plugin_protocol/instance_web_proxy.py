@@ -34,9 +34,7 @@ def resolve_instance_proxy_target(
 
     from .snowluma_docker import snowluma_docker_effective_host_novnc_port
 
-    port = resolve_instance_proxy_port(
-        snowluma_docker_effective_host_novnc_port(account, config), label="noVNC"
-    )
+    port = resolve_instance_proxy_port(snowluma_docker_effective_host_novnc_port(account, config), label="noVNC")
     return InstanceProxyTarget(origin=f"http://127.0.0.1:{port}", base_path="/")
 
 

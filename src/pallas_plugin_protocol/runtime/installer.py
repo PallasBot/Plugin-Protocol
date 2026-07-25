@@ -23,16 +23,13 @@ if TYPE_CHECKING:
 from urllib.parse import urlparse
 
 import httpx
-
 from pallas.api.utils import (
+    StreamDownloadProgress,
     fetch_github_releases,
+    format_download_byte_size,
     github_auth_headers,
     github_release_api_url,
     github_release_asset_url,
-)
-from pallas.api.utils import (
-    StreamDownloadProgress,
-    format_download_byte_size,
     sync_stream_download_to_file,
 )
 
@@ -120,9 +117,7 @@ def _pick_release_asset_generic(
     return entries[0]
 
 
-def _pick_appimage_asset_from_release(
-    release_json: dict[str, Any], preferred_asset: str
-) -> tuple[str, str] | None:
+def _pick_appimage_asset_from_release(release_json: dict[str, Any], preferred_asset: str) -> tuple[str, str] | None:
     assets = release_json.get("assets")
     if not isinstance(assets, list):
         return None
@@ -148,9 +143,7 @@ def _pick_appimage_asset_from_release(
     return None
 
 
-def _pick_appimage_asset_from_release_html(
-    html: str, repo: str, preferred_asset: str
-) -> tuple[str, str] | None:
+def _pick_appimage_asset_from_release_html(html: str, repo: str, preferred_asset: str) -> tuple[str, str] | None:
     if not html.strip():
         return None
     owner_part, _, name_part = repo.partition("/")
@@ -218,9 +211,7 @@ def find_onekey_post_install_program_dir(search_root: Path) -> Path | None:
     if not root.is_dir():
         return None
     shell_dirs = [
-        p
-        for p in root.iterdir()
-        if p.is_dir() and p.name.startswith("NapCat.") and p.name.endswith(".Shell")
+        p for p in root.iterdir() if p.is_dir() and p.name.startswith("NapCat.") and p.name.endswith(".Shell")
     ]
     shell_dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     for shell in shell_dirs:
@@ -234,9 +225,7 @@ def find_onekey_post_install_program_dir(search_root: Path) -> Path | None:
     return None
 
 
-def resolve_program_dir_under_extract(
-    search_root: Path, *, onekey: bool
-) -> Path | None:
+def resolve_program_dir_under_extract(search_root: Path, *, onekey: bool) -> Path | None:
     """在解压根目录下解析 program_dir；一键包在存在 NapCatInstaller.exe 且未完成 Shell 布局时不误选根级 bootmain。"""
     root = search_root.resolve()
     if not root.is_dir():
@@ -250,9 +239,7 @@ def resolve_program_dir_under_extract(
     return find_napcat_program_dir(root, prefer_bootmain=onekey)
 
 
-def _run_napcat_installer_sync(
-    extract_root: Path, *, timeout_sec: int = _INSTALLER_TIMEOUT_SEC
-) -> int | None:
+def _run_napcat_installer_sync(extract_root: Path, *, timeout_sec: int = _INSTALLER_TIMEOUT_SEC) -> int | None:
     """Windows 下一键包官方步骤：运行解压根目录的 NapCatInstaller.exe；未找到则跳过。"""
     if os.name != "nt":
         return None
@@ -405,9 +392,7 @@ class NapCatRuntimeStore:
         appimage = asset_is_linux_appimage(m.asset_name)
 
         def usable(d: Path) -> bool:
-            if d.is_dir() and (
-                (d / "NapCatWinBootMain.exe").is_file() or (d / "napcat.mjs").is_file()
-            ):
+            if d.is_dir() and ((d / "NapCatWinBootMain.exe").is_file() or (d / "napcat.mjs").is_file()):
                 return True
             if d.is_file() and d.suffix == ".AppImage":
                 return True
@@ -462,14 +447,10 @@ class NapCatRuntimeStore:
         return self._job_status in ("downloading", "extracting", "installing")
 
     def _github_token(self) -> str:
-        return str(
-            getattr(self._config, "pallas_protocol_github_token", "") or ""
-        ).strip()
+        return str(getattr(self._config, "pallas_protocol_github_token", "") or "").strip()
 
     def _repo(self, target_platform: str = "auto") -> str:
-        configured = str(
-            getattr(self._config, "pallas_protocol_github_repo", "")
-        ).strip()
+        configured = str(getattr(self._config, "pallas_protocol_github_repo", "")).strip()
         if not configured:
             return default_release_repo_for_platform(target_platform)
         if (target_platform or "auto").strip().lower() != "auto":
@@ -482,9 +463,7 @@ class NapCatRuntimeStore:
         """Linux 下自动尝试多个来源，减少因单仓库命名变化导致的硬编码配置。"""
         primary = self._repo(target_platform)
         out: list[str] = [primary]
-        if target_platform.startswith("linux") or (
-            target_platform == "auto" and sys.platform.startswith("linux")
-        ):
+        if target_platform.startswith("linux") or (target_platform == "auto" and sys.platform.startswith("linux")):
             for repo in (_NC_REPO_APPIMAGE, _NC_REPO_SHELL):
                 if repo not in out:
                     out.append(repo)
@@ -495,17 +474,13 @@ class NapCatRuntimeStore:
         if callable(fn):
             val = str(fn()).strip()
         else:
-            val = str(
-                getattr(self._config, "pallas_protocol_release_asset", "")
-            ).strip()
+            val = str(getattr(self._config, "pallas_protocol_release_asset", "")).strip()
         if val.lower() in ("auto", "latest"):
             return ""
         if (target_platform or "auto").strip().lower() != "auto":
             auto_default = default_release_asset_for_platform()
             if val == auto_default:
-                return default_release_asset_for_platform(
-                    target_platform=target_platform
-                )
+                return default_release_asset_for_platform(target_platform=target_platform)
         return val
 
     def _release_tag(self) -> str:
@@ -538,25 +513,15 @@ class NapCatRuntimeStore:
             release_tag = tag.strip() if tag and tag.strip() else self._release_tag()
             self._job_tag = release_tag
             if not configured_asset:
-                configured_asset = default_release_asset_for_platform(
-                    release_tag, target_platform=target_platform
-                )
-            direct_asset_url = (
-                configured_asset if _looks_like_http_url(configured_asset) else ""
-            )
-            asset_name = (
-                _asset_name_from_url(direct_asset_url)
-                if direct_asset_url
-                else configured_asset
-            )
+                configured_asset = default_release_asset_for_platform(release_tag, target_platform=target_platform)
+            direct_asset_url = configured_asset if _looks_like_http_url(configured_asset) else ""
+            asset_name = _asset_name_from_url(direct_asset_url) if direct_asset_url else configured_asset
             if not asset_name:
                 msg = "未解析到可下载资产名，请检查 pallas_protocol_release_asset"
                 raise ValueError(msg)
             self._set_job("downloading", "准备下载…")
             repo = self._repo(target_platform)
-            url = direct_asset_url or github_release_asset_url(
-                repo, asset_name, release_tag
-            )
+            url = direct_asset_url or github_release_asset_url(repo, asset_name, release_tag)
             self._dist_dir.mkdir(parents=True, exist_ok=True)
             dist_file = self._dist_dir / asset_name
 
@@ -581,18 +546,12 @@ class NapCatRuntimeStore:
                             rel_api = github_release_api_url(repo_try, tag_try)
                             rel_resp = await hc.get(rel_api, headers=_gh_headers)
                             if rel_resp.status_code == 200:
-                                pick = _pick_release_asset_generic(
-                                    rel_resp.json(), asset_name
-                                )
+                                pick = _pick_release_asset_generic(rel_resp.json(), asset_name)
                                 if pick is not None:
                                     pick_name, pick_url = pick
-                                    download_candidates.append(
-                                        (repo_try, pick_name, pick_url)
-                                    )
+                                    download_candidates.append((repo_try, pick_name, pick_url))
                                     continue
-                            if asset_is_linux_appimage(
-                                asset_name
-                            ) and rel_resp.status_code in (403, 404, 429):
+                            if asset_is_linux_appimage(asset_name) and rel_resp.status_code in (403, 404, 429):
                                 # 解析发布页资产
                                 rel_web = (
                                     f"https://github.com/{repo_try}/releases/latest"
@@ -601,23 +560,17 @@ class NapCatRuntimeStore:
                                 )
                                 web_resp = await hc.get(rel_web)
                                 if web_resp.status_code == 200:
-                                    pick = _pick_appimage_asset_from_release_html(
-                                        web_resp.text, repo_try, asset_name
-                                    )
+                                    pick = _pick_appimage_asset_from_release_html(web_resp.text, repo_try, asset_name)
                                     if pick is not None:
                                         pick_name, pick_url = pick
-                                        download_candidates.append(
-                                            (repo_try, pick_name, pick_url)
-                                        )
+                                        download_candidates.append((repo_try, pick_name, pick_url))
                     if not download_candidates:
                         # 添加直链候选
-                        download_candidates.append(
-                            (
-                                repo,
-                                asset_name,
-                                github_release_asset_url(repo, asset_name, release_tag),
-                            )
-                        )
+                        download_candidates.append((
+                            repo,
+                            asset_name,
+                            github_release_asset_url(repo, asset_name, release_tag),
+                        ))
 
                 errors: list[str] = []
                 deduped: list[tuple[str, str, str]] = []
@@ -666,9 +619,7 @@ class NapCatRuntimeStore:
 
             self._set_job("extracting", "安装中…")
             self._extract_root.mkdir(parents=True, exist_ok=True)
-            stage = Path(
-                tempfile.mkdtemp(prefix="napcat_extract_", dir=str(self._extract_root))
-            )
+            stage = Path(tempfile.mkdtemp(prefix="napcat_extract_", dir=str(self._extract_root)))
             try:
                 is_appimage = asset_is_linux_appimage(asset_name)
                 if is_appimage:
@@ -686,19 +637,15 @@ class NapCatRuntimeStore:
                 elif prefer_boot:
                     has_marker = (
                         (stage / "NapCatInstaller.exe").is_file()
-                        or find_napcat_program_dir(stage, prefer_bootmain=True)
-                        is not None
-                        or find_napcat_program_dir(stage, prefer_bootmain=False)
-                        is not None
+                        or find_napcat_program_dir(stage, prefer_bootmain=True) is not None
+                        or find_napcat_program_dir(stage, prefer_bootmain=False) is not None
                     )
                     if not has_marker:
                         msg = "一键包解压后未找到 NapCatInstaller.exe 或任何可启动文件。请确认 zip 完整。"
                         raise RuntimeError(msg)
                 else:
                     if find_napcat_program_dir(stage, prefer_bootmain=False) is None:
-                        msg = (
-                            "解压完成但未找到 napcat.mjs，请确认为标准 NapCat.Shell.zip"
-                        )
+                        msg = "解压完成但未找到 napcat.mjs，请确认为标准 NapCat.Shell.zip"
                         raise RuntimeError(msg)
 
                 self._extract_root.mkdir(parents=True, exist_ok=True)
@@ -715,19 +662,14 @@ class NapCatRuntimeStore:
                         "运行 NapCatInstaller.exe（官方一键部署，可能较久）…",
                     )
                     try:
-                        rc = await asyncio.to_thread(
-                            _run_napcat_installer_sync, final_root
-                        )
+                        rc = await asyncio.to_thread(_run_napcat_installer_sync, final_root)
                     except subprocess.TimeoutExpired as e:
                         msg = (
                             f"NapCatInstaller.exe 超过 {_INSTALLER_TIMEOUT_SEC}s 仍未结束。"
                             "请在本机手动运行解压目录中的安装器，完成后点「刷新检测」。"
                         )
                         raise RuntimeError(msg) from e
-                    if (
-                        rc != 0
-                        and find_onekey_post_install_program_dir(final_root) is None
-                    ):
+                    if rc != 0 and find_onekey_post_install_program_dir(final_root) is None:
                         msg = (
                             f"NapCatInstaller.exe 退出码 {rc}，且未生成 NapCat.*.Shell。"
                             "请查看安装器界面提示后重试，或手动安装后「刷新检测」。"
@@ -738,17 +680,9 @@ class NapCatRuntimeStore:
                 if is_appimage:
                     program_dir = find_appimage_under_dir(final_root)
                 else:
-                    program_dir = resolve_program_dir_under_extract(
-                        final_root, onekey=prefer_boot
-                    )
-                    if (
-                        program_dir is None
-                        and prefer_boot
-                        and not (final_root / "NapCatInstaller.exe").is_file()
-                    ):
-                        program_dir = find_napcat_program_dir(
-                            final_root, prefer_bootmain=prefer_boot
-                        )
+                    program_dir = resolve_program_dir_under_extract(final_root, onekey=prefer_boot)
+                    if program_dir is None and prefer_boot and not (final_root / "NapCatInstaller.exe").is_file():
+                        program_dir = find_napcat_program_dir(final_root, prefer_bootmain=prefer_boot)
                 if program_dir is None:
                     if is_appimage:
                         msg = "未找到可执行 AppImage 文件。"
@@ -795,9 +729,7 @@ class NapCatRuntimeStore:
 
         async def _run() -> None:
             try:
-                await self.download_and_install(
-                    tag=tag, target_platform=target_platform
-                )
+                await self.download_and_install(tag=tag, target_platform=target_platform)
                 if on_success is not None:
                     on_success()
             except Exception as e:
@@ -820,9 +752,7 @@ class NapCatRuntimeStore:
             timeout=httpx.Timeout(30.0, connect=10.0),
             headers={"User-Agent": "Pallas-Bot-PallasProtocol/1.0"},
         ) as client:
-            return await fetch_github_releases(
-                self._repo(), client=client, limit=limit, token=self._github_token()
-            )
+            return await fetch_github_releases(self._repo(), client=client, limit=limit, token=self._github_token())
 
     def _resolve_program_dir_in_extract_folder(self, folder: Path) -> Path | None:
         """在单个子目录中解析 NapCat 程序根。"""
@@ -860,21 +790,15 @@ class NapCatRuntimeStore:
         """列出 ``runtime_dist`` 与 ``runtime_extract`` 下的本机缓存。"""
         dist_files: list[dict[str, Any]] = []
         if self._dist_dir.is_dir():
-            for p in sorted(
-                self._dist_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True
-            ):
+            for p in sorted(self._dist_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
                 if not p.is_file():
                     continue
                 st = p.stat()
-                dist_files.append(
-                    {
-                        "name": p.name,
-                        "size_bytes": st.st_size,
-                        "mtime_iso": datetime.fromtimestamp(
-                            st.st_mtime, tz=UTC
-                        ).isoformat(),
-                    }
-                )
+                dist_files.append({
+                    "name": p.name,
+                    "size_bytes": st.st_size,
+                    "mtime_iso": datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(),
+                })
         extract_dirs: list[dict[str, Any]] = []
         cur = ""
         m = self.read_manifest()
@@ -890,15 +814,11 @@ class NapCatRuntimeStore:
                     continue
                 st = p.stat()
                 pr = str(p.resolve())
-                extract_dirs.append(
-                    {
-                        "name": p.name,
-                        "mtime_iso": datetime.fromtimestamp(
-                            st.st_mtime, tz=UTC
-                        ).isoformat(),
-                        "is_active": bool(cur and pr == cur),
-                    }
-                )
+                extract_dirs.append({
+                    "name": p.name,
+                    "mtime_iso": datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(),
+                    "is_active": bool(cur and pr == cur),
+                })
         return {"dist_files": dist_files, "extract_dirs": extract_dirs}
 
     def resolve_program_dir_for_tag_slug(self, slug: str) -> Path | None:
@@ -927,9 +847,7 @@ class NapCatRuntimeStore:
         manifest = RuntimeManifest(
             program_dir=str(program_dir.resolve()),
             extract_root=str(folder.resolve()),
-            asset_name=(
-                prev.asset_name if prev and prev.asset_name else self._asset_name()
-            ),
+            asset_name=(prev.asset_name if prev and prev.asset_name else self._asset_name()),
             release_tag=raw,
             source_url=(prev.source_url if prev else ""),
         )
@@ -952,9 +870,7 @@ class NapCatRuntimeStore:
         manifest = RuntimeManifest(
             program_dir=str(program_dir.resolve()),
             extract_root=str(folder.resolve()),
-            asset_name=(
-                prev.asset_name if prev and prev.asset_name else self._asset_name()
-            ),
+            asset_name=(prev.asset_name if prev and prev.asset_name else self._asset_name()),
             release_tag=f"local:{folder.name}",
             source_url=(prev.source_url if prev else ""),
         )
@@ -969,18 +885,14 @@ class NapCatRuntimeStore:
         """不重新下载，仅在已有解压目录中查找 Shell 根。"""
         if not self._extract_root.exists():
             return None
-        candidates = sorted(
-            self._extract_root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True
-        )
+        candidates = sorted(self._extract_root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
         for folder in candidates:
             if not folder.is_dir():
                 continue
             program_dir = self._resolve_program_dir_in_extract_folder(folder)
             if program_dir is None:
                 continue
-            url = github_release_asset_url(
-                self._repo(), self._asset_name(), self._release_tag()
-            )
+            url = github_release_asset_url(self._repo(), self._asset_name(), self._release_tag())
             manifest = RuntimeManifest(
                 program_dir=str(program_dir.resolve()),
                 extract_root=str(folder.resolve()),
@@ -1019,9 +931,7 @@ def default_release_repo_for_platform(target_platform: str = "auto") -> str:
     return _NC_REPO_SHELL
 
 
-def default_release_asset_for_platform(
-    tag: str = "", target_platform: str = "auto"
-) -> str:
+def default_release_asset_for_platform(tag: str = "", target_platform: str = "auto") -> str:
     """按平台选择默认 release 资产名（空配置时 `resolved_release_asset` 会调用）。
 
     - Windows：NapCatQQ 一键包 zip

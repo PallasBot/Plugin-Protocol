@@ -9,9 +9,7 @@ from urllib.parse import quote
 from .base import NapcatPlatform
 
 
-def _resolve_napcat_win_boot_main(
-    program_dir: Path, qq_path: str | None
-) -> Path | None:
+def _resolve_napcat_win_boot_main(program_dir: Path, qq_path: str | None) -> Path | None:
     direct = program_dir / "NapCatWinBootMain.exe"
     if direct.is_file():
         return direct
@@ -89,9 +87,7 @@ class WindowsNapcatPlatform(NapcatPlatform):
         try:
             import winreg
 
-            key_path = (
-                r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\QQ"
-            )
+            key_path = r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\QQ"
             with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
                 uninstall, _ = winreg.QueryValueEx(key, "UninstallString")
             qq_exe = Path(uninstall.strip().strip('"')).parent / "QQ.exe"
@@ -125,19 +121,9 @@ class WindowsNapcatPlatform(NapcatPlatform):
             return str(boot_main), [qq_uin], env_map, str(boot_dir)
         if quick:
             return str(boot_main), [], env_map, str(boot_dir)
-        if (
-            not quick
-            and inject.exists()
-            and patch.exists()
-            and qq_path
-            and main_mjs.exists()
-        ):
-            file_url = "file:///" + quote(
-                str(main_mjs).replace("\\", "/"), safe="/:-._~"
-            )
-            load_path.write_text(
-                f'(async () => {{await import("{file_url}")}})()', encoding="utf-8"
-            )
+        if not quick and inject.exists() and patch.exists() and qq_path and main_mjs.exists():
+            file_url = "file:///" + quote(str(main_mjs).replace("\\", "/"), safe="/:-._~")
+            load_path.write_text(f'(async () => {{await import("{file_url}")}})()', encoding="utf-8")
             merged = {
                 **env_map,
                 "NAPCAT_PATCH_PACKAGE": str(patch),

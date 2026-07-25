@@ -23,6 +23,7 @@ docker_stop_sync = docker_cli.docker_stop_sync
 
 __all__ = [
     "append_docker_resource_limits",
+    "apply_docker_runtime_toggle_to_ws_url",
     "build_docker_run_argv",
     "docker_cache_path",
     "docker_container_name",
@@ -33,7 +34,6 @@ __all__ = [
     "docker_stop_sync",
     "docker_volume_paths",
     "is_linux",
-    "apply_docker_runtime_toggle_to_ws_url",
     "is_plain_ws_url",
     "rewrite_onebot_ws_url_for_container",
     "sanitize_docker_name_suffix",
@@ -96,9 +96,7 @@ def build_docker_run_argv(
         or str(getattr(config, "pallas_protocol_docker_image", None) or "").strip()
         or "mlikiowa/napcat-docker:latest"
     )
-    in_port = int(
-        getattr(config, "pallas_protocol_docker_internal_webui_port", 6099) or 6099
-    )
+    in_port = int(getattr(config, "pallas_protocol_docker_internal_webui_port", 6099) or 6099)
     wport = account.get("webui_port", in_port)
     try:
         host_map = int(wport)
@@ -109,12 +107,7 @@ def build_docker_run_argv(
     name = docker_container_name(account)
     cfg, qqd = docker_volume_paths(account)
     cache = docker_cache_path(account)
-    network_mode = (
-        str(
-            getattr(config, "pallas_protocol_docker_network_mode", "bridge") or "bridge"
-        ).strip()
-        or "bridge"
-    )
+    network_mode = str(getattr(config, "pallas_protocol_docker_network_mode", "bridge") or "bridge").strip() or "bridge"
     uid = getattr(config, "pallas_protocol_docker_uid", None)
     gid = getattr(config, "pallas_protocol_docker_gid", None)
     if uid is None:
@@ -178,9 +171,7 @@ def rewrite_onebot_ws_url_for_container(url: str, docker_host: str) -> str:
     return urlunsplit((u.scheme, netloc, u.path, u.query, u.fragment))
 
 
-_IPV4_RE = re.compile(
-    r"^(?:25[0-5]|2[0-4]\d|[01]?\d{1,3})(?:\.(?:25[0-5]|2[0-4]\d|[01]?\d{1,3})){3}$"
-)
+_IPV4_RE = re.compile(r"^(?:25[0-5]|2[0-4]\d|[01]?\d{1,3})(?:\.(?:25[0-5]|2[0-4]\d|[01]?\d{1,3})){3}$")
 
 
 def ws_url_host_should_rewrite_for_docker_bridge(url: str) -> bool:
@@ -228,9 +219,7 @@ def apply_docker_runtime_toggle_to_ws_url(
     u = urlsplit(url)
     h = (u.hostname or "").strip().lower()
     bridge_style = ws_url_host_should_rewrite_for_docker_bridge(url)
-    host_is_docker_target = (
-        h == "host.docker.internal" or (bool(dh) and h == dh) or bridge_style
-    )
+    host_is_docker_target = h == "host.docker.internal" or (bool(dh) and h == dh) or bridge_style
     if not host_is_docker_target:
         return None
     base_url, _, _ = resolve_onebot_ws_settings(config)

@@ -51,9 +51,7 @@ def normalize_instance_folder_segment(kind: str) -> str:
     return s[:64]
 
 
-def resolve_default_account_data_dir(
-    instances_root: Path, account_id: str, backend_kind: str
-) -> Path:
+def resolve_default_account_data_dir(instances_root: Path, account_id: str, backend_kind: str) -> Path:
     """无显式 ``account_data_dir`` 时的默认数据目录：``instances/<id>/<backend>/``。
 
     若磁盘上仍存在历史布局 ``instances/<id>/``，且新布局目录尚不存在，
@@ -68,11 +66,6 @@ def resolve_default_account_data_dir(
     legacy = (instances_root / clean_id).resolve()
     if nested.exists() and nested.is_dir():
         return nested
-    if (
-        legacy.exists()
-        and legacy.is_dir()
-        and (legacy / "config").is_dir()
-        and not nested.exists()
-    ):
+    if legacy.exists() and legacy.is_dir() and (legacy / "config").is_dir() and not nested.exists():
         return legacy
     return nested

@@ -26,8 +26,7 @@ def assess_snowluma_account_health(
     operational_warnings: list[str] = []
 
     if include_host_deps and account.get("snowluma_linux_docker"):
-        for item in audit_snowluma_qr_capture_host_deps():
-            operational_warnings.append(item)
+        operational_warnings.extend(audit_snowluma_qr_capture_host_deps())
 
     login_required = bool(container_running and not bot_connected)
     if login_required:

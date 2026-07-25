@@ -1,9 +1,7 @@
-# ruff: noqa: E501
 import logging
 
 from nonebot import get_app, get_driver, logger
 from nonebot.plugin import PluginMetadata
-
 from pallas.api.metadata import (
     PLUGIN_EXTRA_VERSION,
     PLUGIN_HOMEPAGE,
@@ -61,9 +59,7 @@ __plugin_meta__ = PluginMetadata(
 
 app = get_app()
 driver = get_driver()
-manager = PallasProtocolService(
-    plugin_data_dir("pallas_protocol"), get_pallas_protocol_config()
-)
+manager = PallasProtocolService(plugin_data_dir("pallas_protocol"), get_pallas_protocol_config())
 
 register_pallas_protocol_routes(app, manager=manager, plugin_config=plugin_config)
 
@@ -79,9 +75,7 @@ async def _startup() -> None:
         return
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     await manager.initialize()
-    logger.info(
-        "Pallas-Bot 协议端 | 管理入口=/pallas/protocol（旧 /protocol/console 仅兼容跳转）"
-    )
+    logger.info("Pallas-Bot 协议端 | 管理入口=/pallas/protocol（旧 /protocol/console 仅兼容跳转）")
     profile = manager.runtime_profile()
     if bool(profile.get("follow_bot_lifecycle", True)):
         await manager.start_all_enabled_accounts()

@@ -18,16 +18,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 import httpx
-
 from pallas.api.utils import (
+    StreamDownloadProgress,
     fetch_github_releases,
+    format_download_byte_size,
     github_auth_headers,
     github_release_api_url,
     github_release_asset_url,
-)
-from pallas.api.utils import (
-    StreamDownloadProgress,
-    format_download_byte_size,
     sync_stream_download_to_file,
 )
 
@@ -73,9 +70,7 @@ def _asset_name_from_url(value: str) -> str:
     return Path(parsed.path).name.strip()
 
 
-def default_snowluma_asset_name_for_tag(
-    tag: str, *, target_platform: str | None = None
-) -> str:
+def default_snowluma_asset_name_for_tag(tag: str, *, target_platform: str | None = None) -> str:
     """按目标平台与 tag 生成默认资产文件名。"""
     t = (tag or "").strip()
     if not t:
@@ -118,8 +113,7 @@ def pick_snowluma_asset_from_release(
         want_win = os.name == "nt"
         want_linux_amd = sys.platform.startswith("linux")
         want_linux_arm = want_linux_amd and (
-            "arm" in (platform.machine() or "").lower()
-            or "aarch64" in (platform.machine() or "").lower()
+            "arm" in (platform.machine() or "").lower() or "aarch64" in (platform.machine() or "").lower()
         )
         if want_linux_arm:
             want_linux_amd = False
@@ -135,19 +129,16 @@ def pick_snowluma_asset_from_release(
         if "lite" in low:
             continue
         ok = False
-        if want_win and low.endswith(".zip") and "win-x64" in low:
-            ok = True
-        elif (
-            want_linux_arm
-            and low.endswith(".tar.gz")
-            and ("arm64" in low or "aarch64" in low or "linux-arm64" in low)
-        ):
-            ok = True
-        elif (
-            want_linux_amd
-            and low.endswith(".tar.gz")
-            and "linux-x64" in low
-            and "arm" not in low
+        if (
+            want_win
+            and low.endswith(".zip")
+            and "win-x64" in low
+            or (
+                want_linux_arm
+                and low.endswith(".tar.gz")
+                and ("arm64" in low or "aarch64" in low or "linux-arm64" in low)
+            )
+            or (want_linux_amd and low.endswith(".tar.gz") and "linux-x64" in low and "arm" not in low)
         ):
             ok = True
         if ok:
@@ -228,25 +219,17 @@ class SnowLumaRuntimeStore:
         return self._job_status in ("downloading", "extracting", "installing")
 
     def _github_token(self) -> str:
-        return str(
-            getattr(self._config, "pallas_protocol_github_token", "") or ""
-        ).strip()
+        return str(getattr(self._config, "pallas_protocol_github_token", "") or "").strip()
 
     def _repo(self) -> str:
-        r = str(
-            getattr(self._config, "pallas_protocol_snowluma_github_repo", "") or ""
-        ).strip()
+        r = str(getattr(self._config, "pallas_protocol_snowluma_github_repo", "") or "").strip()
         return r or "SnowLuma/SnowLuma"
 
     def _release_tag(self) -> str:
-        return str(
-            getattr(self._config, "pallas_protocol_snowluma_release_tag", "") or ""
-        ).strip()
+        return str(getattr(self._config, "pallas_protocol_snowluma_release_tag", "") or "").strip()
 
     def _configured_asset(self) -> str:
-        return str(
-            getattr(self._config, "pallas_protocol_snowluma_release_asset", "") or ""
-        ).strip()
+        return str(getattr(self._config, "pallas_protocol_snowluma_release_asset", "") or "").strip()
 
     def _on_stream_download_progress(self, ev: StreamDownloadProgress) -> None:
         if ev["event"] == "percent":
@@ -279,14 +262,8 @@ class SnowLumaRuntimeStore:
             release_tag = tag.strip() if tag and tag.strip() else self._release_tag()
             self._job_tag = release_tag
 
-            direct_asset_url = (
-                configured_asset if _looks_like_http_url(configured_asset) else ""
-            )
-            asset_name = (
-                _asset_name_from_url(direct_asset_url)
-                if direct_asset_url
-                else configured_asset
-            )
+            direct_asset_url = configured_asset if _looks_like_http_url(configured_asset) else ""
+            asset_name = _asset_name_from_url(direct_asset_url) if direct_asset_url else configured_asset
 
             self._set_job("downloading", "准备下载 SnowLuma…")
             repo = self._repo()
@@ -325,18 +302,14 @@ class SnowLumaRuntimeStore:
                             raw = rel_resp.json()
                             if isinstance(raw, dict):
                                 release_json = raw
-                                used_tag = str(
-                                    raw.get("tag_name", "") or tag_try
-                                ).strip()
+                                used_tag = str(raw.get("tag_name", "") or tag_try).strip()
                                 break
 
                     if release_json is None:
                         msg = f"无法获取 SnowLuma Release（仓库 {repo}，tag={release_tag or 'latest'}）"
                         raise RuntimeError(msg)
 
-                    resolved_tag_for_manifest = (
-                        str(release_json.get("tag_name", "") or "").strip() or used_tag
-                    )
+                    resolved_tag_for_manifest = str(release_json.get("tag_name", "") or "").strip() or used_tag
 
                     if not asset_name:
                         picked = pick_snowluma_asset_from_release(
@@ -362,13 +335,9 @@ class SnowLumaRuntimeStore:
                             asset_name, url = picked
                     else:
                         tag_for_url = used_tag or release_tag
-                        picked_pair = _pick_release_asset_generic(
-                            release_json, asset_name
-                        )
+                        picked_pair = _pick_release_asset_generic(release_json, asset_name)
                         if picked_pair is None:
-                            url = github_release_asset_url(
-                                repo, asset_name, tag_for_url
-                            )
+                            url = github_release_asset_url(repo, asset_name, tag_for_url)
                         else:
                             asset_name, url = picked_pair
 
@@ -398,11 +367,7 @@ class SnowLumaRuntimeStore:
 
                 self._set_job("extracting", "解压 SnowLuma…")
                 self._extract_root.mkdir(parents=True, exist_ok=True)
-                stage = Path(
-                    tempfile.mkdtemp(
-                        prefix="snowluma_extract_", dir=str(self._extract_root)
-                    )
-                )
+                stage = Path(tempfile.mkdtemp(prefix="snowluma_extract_", dir=str(self._extract_root)))
                 try:
                     low = asset_name.lower()
                     if low.endswith(".zip"):
@@ -418,12 +383,8 @@ class SnowLumaRuntimeStore:
                         raise RuntimeError(msg)
 
                     self._extract_root.mkdir(parents=True, exist_ok=True)
-                    tag_written = (
-                        resolved_tag_for_manifest or self._job_tag or release_tag
-                    )
-                    tw = (
-                        str(tag_written).strip() if tag_written is not None else ""
-                    ) or "latest"
+                    tag_written = resolved_tag_for_manifest or self._job_tag or release_tag
+                    tw = (str(tag_written).strip() if tag_written is not None else "") or "latest"
                     slug = sanitize_release_tag_for_path(tw)
                     final_root = self._extract_root / slug
                     if await asyncio.to_thread(final_root.exists):
@@ -469,9 +430,7 @@ class SnowLumaRuntimeStore:
 
         async def _run() -> None:
             try:
-                await self.download_and_install(
-                    tag=tag, target_platform=target_platform
-                )
+                await self.download_and_install(tag=tag, target_platform=target_platform)
                 if on_success is not None:
                     on_success()
             except Exception as e:
@@ -496,21 +455,15 @@ class SnowLumaRuntimeStore:
         """列出 ``runtime_dist`` 与 ``runtime_extract`` 下的本机缓存。"""
         dist_files: list[dict[str, Any]] = []
         if self._dist_dir.is_dir():
-            for p in sorted(
-                self._dist_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True
-            ):
+            for p in sorted(self._dist_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
                 if not p.is_file():
                     continue
                 st = p.stat()
-                dist_files.append(
-                    {
-                        "name": p.name,
-                        "size_bytes": st.st_size,
-                        "mtime_iso": datetime.fromtimestamp(
-                            st.st_mtime, tz=UTC
-                        ).isoformat(),
-                    }
-                )
+                dist_files.append({
+                    "name": p.name,
+                    "size_bytes": st.st_size,
+                    "mtime_iso": datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(),
+                })
         extract_dirs: list[dict[str, Any]] = []
         cur = ""
         m = self.read_manifest()
@@ -526,15 +479,11 @@ class SnowLumaRuntimeStore:
                     continue
                 st = p.stat()
                 pr = str(p.resolve())
-                extract_dirs.append(
-                    {
-                        "name": p.name,
-                        "mtime_iso": datetime.fromtimestamp(
-                            st.st_mtime, tz=UTC
-                        ).isoformat(),
-                        "is_active": bool(cur and pr == cur),
-                    }
-                )
+                extract_dirs.append({
+                    "name": p.name,
+                    "mtime_iso": datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(),
+                    "is_active": bool(cur and pr == cur),
+                })
         return {"dist_files": dist_files, "extract_dirs": extract_dirs}
 
     def resolve_program_dir_for_tag_slug(self, slug: str) -> Path | None:
@@ -602,6 +551,4 @@ class SnowLumaRuntimeStore:
             timeout=httpx.Timeout(30.0, connect=10.0),
             headers={"User-Agent": "Pallas-Bot-PallasProtocol/1.0"},
         ) as client:
-            return await fetch_github_releases(
-                self._repo(), client=client, limit=limit, token=self._github_token()
-            )
+            return await fetch_github_releases(self._repo(), client=client, limit=limit, token=self._github_token())

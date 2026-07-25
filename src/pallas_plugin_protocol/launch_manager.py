@@ -43,8 +43,7 @@ class LaunchManager:
         snowluma_runtime_dir_for_account: Callable[[dict], Path | None] | None = None,
         runtime_profile_provider: Callable[[], dict] | None = None,
         platform: NapcatPlatform | None = None,
-        snowluma_docker_allocate_host_ports: Callable[[dict], Mapping[str, int]]
-        | None = None,
+        snowluma_docker_allocate_host_ports: Callable[[dict], Mapping[str, int]] | None = None,
     ) -> None:
         self._plugin_data_dir = plugin_data_dir
         self._resource_root = resource_root
@@ -109,11 +108,7 @@ class LaunchManager:
         rt_parent = str(rt.parent)
 
         cur_prog = str(account.get("program_dir", "")).strip()
-        if (
-            cur_prog
-            and self._is_managed_runtime_path(cur_prog)
-            and Path(cur_prog) != rt
-        ):
+        if cur_prog and self._is_managed_runtime_path(cur_prog) and Path(cur_prog) != rt:
             account["program_dir"] = runtime_path
 
         cur_work = str(account.get("working_dir", "")).strip()
@@ -121,11 +116,7 @@ class LaunchManager:
             account["working_dir"] = rt_parent
 
         cmd = str(account.get("command", "") or "").strip()
-        if (
-            cmd.endswith(".AppImage")
-            and self._is_managed_runtime_path(cmd)
-            and Path(cmd) != rt
-        ):
+        if cmd.endswith(".AppImage") and self._is_managed_runtime_path(cmd) and Path(cmd) != rt:
             account["command"] = runtime_path
 
         args = [str(a) for a in (account.get("args") or [])]
@@ -141,9 +132,7 @@ class LaunchManager:
         if changed:
             account["args"] = args
 
-    def _refresh_snowluma_managed_runtime_refs(
-        self, account: dict, program_path: str
-    ) -> None:
+    def _refresh_snowluma_managed_runtime_refs(self, account: dict, program_path: str) -> None:
         if not program_path:
             return
         try:
@@ -161,33 +150,22 @@ class LaunchManager:
         account["program_dir"] = str(rt)
 
     def apply_defaults(self, account: dict, resolve_qq) -> None:
-        prev_docker_runtime = bool(
-            account.get("napcat_linux_docker") or account.get("snowluma_linux_docker")
-        )
+        prev_docker_runtime = bool(account.get("napcat_linux_docker") or account.get("snowluma_linux_docker"))
         qq = resolve_qq(account)
         if qq:
             account["qq"] = qq
-        bk = (
-            str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY, "") or "").strip().lower()
-            or DEFAULT_PROTOCOL_BACKEND
-        )
+        bk = str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY, "") or "").strip().lower() or DEFAULT_PROTOCOL_BACKEND
         if bk == SNOWLUMA_PROTOCOL_BACKEND:
             self._apply_snowluma_defaults(account, resolve_qq)
-            self._maybe_adapt_ws_url_on_docker_runtime_toggle(
-                account, prev_docker_runtime
-            )
+            self._maybe_adapt_ws_url_on_docker_runtime_toggle(account, prev_docker_runtime)
             return
 
         raw_command = account.get("command", "")
         command = "" if raw_command is None else str(raw_command).strip()
         args = account.get("args")
         if not command:
-            default_command = getattr(
-                self._config, "pallas_protocol_default_command", "node"
-            )
-            default_args = getattr(
-                self._config, "pallas_protocol_default_args", ["napcat.mjs"]
-            )
+            default_command = getattr(self._config, "pallas_protocol_default_command", "node")
+            default_args = getattr(self._config, "pallas_protocol_default_args", ["napcat.mjs"])
             account["command"] = self._platform.resolve_default_command(default_command)
             account["args"] = list(default_args)
         elif args is None:
@@ -206,9 +184,7 @@ class LaunchManager:
             program_dir_raw = ""
         lazy_rt = self._runtime_dir_provider() if self._runtime_dir_provider else None
         runtime_str = str(lazy_rt).strip() if lazy_rt else ""
-        configured_program_dir = str(
-            getattr(self._config, "pallas_protocol_program_dir", "")
-        ).strip()
+        configured_program_dir = str(getattr(self._config, "pallas_protocol_program_dir", "")).strip()
         if acc_rt is not None and acc_rt.is_dir():
             program_dir_raw = str(acc_rt.resolve())
         elif not program_dir_raw:
@@ -222,9 +198,7 @@ class LaunchManager:
         elif not configured_program_dir:
             if not managed_tag:
                 self._refresh_managed_runtime_refs(account, runtime_str)
-            program_dir_raw = (
-                str(account.get("program_dir", "")).strip() or program_dir_raw
-            )
+            program_dir_raw = str(account.get("program_dir", "")).strip() or program_dir_raw
         account["program_dir"] = program_dir_raw
         account["working_dir"] = program_dir_raw
 
@@ -232,15 +206,8 @@ class LaunchManager:
         account_id = str(account.get("id", "")).strip()
         aid = account_id or qq
         if not account_data_dir and aid:
-            bk = (
-                str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY, "") or "").strip()
-                or DEFAULT_PROTOCOL_BACKEND
-            )
-            account_data_dir = str(
-                resolve_default_account_data_dir(
-                    self._instances_root, aid, bk
-                ).resolve()
-            )
+            bk = str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY, "") or "").strip() or DEFAULT_PROTOCOL_BACKEND
+            account_data_dir = str(resolve_default_account_data_dir(self._instances_root, aid, bk).resolve())
         account["account_data_dir"] = account_data_dir
 
         cmd_raw = str(account.get("command", "") or "").strip()
@@ -255,14 +222,10 @@ class LaunchManager:
         self._apply_linux_local_xvfb_profile(account)
         self._maybe_adapt_ws_url_on_docker_runtime_toggle(account, prev_docker_runtime)
 
-    def _maybe_adapt_ws_url_on_docker_runtime_toggle(
-        self, account: dict, prev_docker_runtime: bool
-    ) -> None:
+    def _maybe_adapt_ws_url_on_docker_runtime_toggle(self, account: dict, prev_docker_runtime: bool) -> None:
         from .linux_docker import apply_docker_runtime_toggle_to_ws_url
 
-        now = bool(
-            account.get("napcat_linux_docker") or account.get("snowluma_linux_docker")
-        )
+        now = bool(account.get("napcat_linux_docker") or account.get("snowluma_linux_docker"))
         cur = str(account.get("ws_url", "")).strip()
         if not cur:
             return
@@ -303,9 +266,7 @@ class LaunchManager:
                 )
             except Exception:
                 profile_mode = ""
-        docker_enabled = bool(
-            getattr(self._config, "pallas_protocol_snowluma_linux_use_docker", False)
-        )
+        docker_enabled = bool(getattr(self._config, "pallas_protocol_snowluma_linux_use_docker", False))
         if profile_mode == "docker":
             docker_enabled = True
         elif profile_mode in ("appimage", "shell"):
@@ -319,11 +280,7 @@ class LaunchManager:
             return
         raw = str(account.get("command", "") or "").strip()
         raw_name = Path(raw).name.lower() if raw else ""
-        if (
-            profile_mode != "docker"
-            and raw
-            and raw_name not in ("node", "node.exe", "docker", "docker.exe")
-        ):
+        if profile_mode != "docker" and raw and raw_name not in ("node", "node.exe", "docker", "docker.exe"):
             return
         in_http = int(
             getattr(
@@ -349,12 +306,7 @@ class LaunchManager:
             )
             or 6081
         )
-        in_vnc = int(
-            getattr(
-                self._config, "pallas_protocol_snowluma_docker_internal_vnc_port", 5900
-            )
-            or 5900
-        )
+        in_vnc = int(getattr(self._config, "pallas_protocol_snowluma_docker_internal_vnc_port", 5900) or 5900)
         try:
             ex_h = int(str(account.get("snowluma_docker_host_onebot_http", "")).strip())
         except (TypeError, ValueError):
@@ -384,14 +336,10 @@ class LaunchManager:
                 except Exception:
                     from nonebot import logger
 
-                    logger.exception(
-                        "SnowLuma Docker 自动分配宿主机端口失败，回退为与容器内同号的宿主机端口"
-                    )
+                    logger.exception("SnowLuma Docker 自动分配宿主机端口失败，回退为与容器内同号的宿主机端口")
                     allocated = None
             if allocated:
-                account["snowluma_docker_host_onebot_http"] = int(
-                    allocated["onebot_http"]
-                )
+                account["snowluma_docker_host_onebot_http"] = int(allocated["onebot_http"])
                 account["snowluma_docker_host_onebot_ws"] = int(allocated["onebot_ws"])
             else:
                 account["snowluma_docker_host_onebot_http"] = in_http
@@ -399,20 +347,14 @@ class LaunchManager:
 
         try:
             cur_nn = account.get("snowluma_docker_host_novnc_port")
-            cur_nn_i = (
-                int(str(cur_nn).strip())
-                if cur_nn is not None and str(cur_nn).strip() != ""
-                else 0
-            )
+            cur_nn_i = int(str(cur_nn).strip()) if cur_nn is not None and str(cur_nn).strip() != "" else 0
         except (TypeError, ValueError):
             cur_nn_i = 0
         if cur_nn_i >= 1:
             account["snowluma_docker_host_novnc_port"] = cur_nn_i
         else:
             if allocated:
-                account["snowluma_docker_host_novnc_port"] = int(
-                    allocated["host_novnc"]
-                )
+                account["snowluma_docker_host_novnc_port"] = int(allocated["host_novnc"])
             else:
                 gn = int(
                     getattr(
@@ -426,11 +368,7 @@ class LaunchManager:
 
         try:
             cur_vc = account.get("snowluma_docker_host_vnc_port")
-            cur_vc_i = (
-                int(str(cur_vc).strip())
-                if cur_vc is not None and str(cur_vc).strip() != ""
-                else 0
-            )
+            cur_vc_i = int(str(cur_vc).strip()) if cur_vc is not None and str(cur_vc).strip() != "" else 0
         except (TypeError, ValueError):
             cur_vc_i = 0
         if cur_vc_i >= 1:
@@ -439,19 +377,12 @@ class LaunchManager:
             if allocated:
                 account["snowluma_docker_host_vnc_port"] = int(allocated["host_vnc"])
             else:
-                gv = int(
-                    getattr(
-                        self._config, "pallas_protocol_snowluma_docker_host_vnc_port", 0
-                    )
-                    or 0
-                )
+                gv = int(getattr(self._config, "pallas_protocol_snowluma_docker_host_vnc_port", 0) or 0)
                 account["snowluma_docker_host_vnc_port"] = gv if gv >= 1 else in_vnc
 
         account["snowluma_linux_docker"] = True
         account["command"] = "docker"
-        account["args"] = build_snowluma_docker_run_argv(
-            account, self._config, resolve_qq
-        )
+        account["args"] = build_snowluma_docker_run_argv(account, self._config, resolve_qq)
         ad = str(account.get("account_data_dir", "") or "").strip()
         account["working_dir"] = ad or ("." if os.name == "nt" else "/")
         account["program_dir"] = snowluma_docker_program_dir_marker(self._config)
@@ -480,9 +411,7 @@ class LaunchManager:
             except Exception:
                 acc_sl = None
 
-        configured_sd = str(
-            getattr(self._config, "pallas_protocol_snowluma_program_dir", "") or ""
-        ).strip()
+        configured_sd = str(getattr(self._config, "pallas_protocol_snowluma_program_dir", "") or "").strip()
         lazy_sl = ""
         if self._snowluma_runtime_dir_provider:
             try:
@@ -510,15 +439,8 @@ class LaunchManager:
         account_id = str(account.get("id", "") or "").strip()
         aid = account_id or qq
         if not account_data_dir and aid:
-            bk = (
-                str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY, "") or "").strip()
-                or DEFAULT_PROTOCOL_BACKEND
-            )
-            account_data_dir = str(
-                resolve_default_account_data_dir(
-                    self._instances_root, aid, bk
-                ).resolve()
-            )
+            bk = str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY, "") or "").strip() or DEFAULT_PROTOCOL_BACKEND
+            account_data_dir = str(resolve_default_account_data_dir(self._instances_root, aid, bk).resolve())
         account["account_data_dir"] = account_data_dir
 
         account["working_dir"] = account_data_dir or program_dir_raw
@@ -547,9 +469,7 @@ class LaunchManager:
                 )
             except Exception:
                 profile_mode = ""
-        docker_enabled = bool(
-            getattr(self._config, "pallas_protocol_linux_use_docker", True)
-        )
+        docker_enabled = bool(getattr(self._config, "pallas_protocol_linux_use_docker", True))
         if profile_mode == "docker":
             docker_enabled = True
         elif profile_mode in ("appimage", "shell"):
@@ -564,25 +484,18 @@ class LaunchManager:
             return
         raw = str(account.get("command", "") or "").strip()
         raw_name = Path(raw).name.lower() if raw else ""
-        if (
-            profile_mode != "docker"
-            and raw
-            and raw_name not in ("node", "node.exe", "docker", "docker.exe")
-        ):
+        if profile_mode != "docker" and raw and raw_name not in ("node", "node.exe", "docker", "docker.exe"):
             return
         account["napcat_linux_docker"] = True
         account["command"] = "docker"
         account["args"] = build_docker_run_argv(account, self._config, resolve_qq)
-        in_p = int(
-            getattr(self._config, "pallas_protocol_docker_internal_webui_port", 6099)
-            or 6099
-        )
+        in_p = int(getattr(self._config, "pallas_protocol_docker_internal_webui_port", 6099) or 6099)
         account["napcat_docker_internal_webui"] = in_p
         ad = str(account.get("account_data_dir", "")).strip()
         account["working_dir"] = ad or ("." if os.name == "nt" else "/")
-        img = (
-            getattr(self._config, "pallas_protocol_docker_image", None) or ""
-        ).strip() or ("mlikiowa/napcat-docker:latest")
+        img = (getattr(self._config, "pallas_protocol_docker_image", None) or "").strip() or (
+            "mlikiowa/napcat-docker:latest"
+        )
         account["program_dir"] = f"docker:{img}"
 
     def _apply_linux_local_xvfb_profile(self, account: dict) -> None:
@@ -591,25 +504,14 @@ class LaunchManager:
             return
         if account.get("napcat_linux_docker"):
             return
-        xvfb_command = str(
-            getattr(self._config, "pallas_protocol_linux_xvfb_command", "xvfb-run")
-            or ""
-        ).strip()
+        xvfb_command = str(getattr(self._config, "pallas_protocol_linux_xvfb_command", "xvfb-run") or "").strip()
         if not bool(getattr(self._config, "pallas_protocol_linux_use_xvfb", True)):
             command = str(account.get("command", "") or "").strip()
             # 关闭 xvfb 后，兼容历史已包裹的命令并自动解包。
-            if (
-                xvfb_command
-                and command
-                and Path(command).name == Path(xvfb_command).name
-            ):
+            if xvfb_command and command and Path(command).name == Path(xvfb_command).name:
                 raw_args = [str(item) for item in (account.get("args") or [])]
                 configured_xvfb_args = [
-                    str(item)
-                    for item in (
-                        getattr(self._config, "pallas_protocol_linux_xvfb_args", [])
-                        or []
-                    )
+                    str(item) for item in (getattr(self._config, "pallas_protocol_linux_xvfb_args", []) or [])
                 ]
                 restored_command = ""
                 restored_args: list[str] = []
@@ -637,12 +539,7 @@ class LaunchManager:
         if Path(command).name == Path(xvfb_command).name:
             return
         original_args = [str(item) for item in (account.get("args") or [])]
-        xvfb_args = [
-            str(item)
-            for item in (
-                getattr(self._config, "pallas_protocol_linux_xvfb_args", []) or []
-            )
-        ]
+        xvfb_args = [str(item) for item in (getattr(self._config, "pallas_protocol_linux_xvfb_args", []) or [])]
         account["command"] = xvfb_command
         account["args"] = [*xvfb_args, command, *original_args]
 
@@ -670,11 +567,7 @@ class LaunchManager:
             args = [str(x) for x in (account.get("args") or [])]
             if qq.isdigit() and "-q" not in args and "--qq" not in args:
                 args = [*args, "-q", qq]
-            if (
-                hasattr(os, "geteuid")
-                and os.geteuid() == 0
-                and "--no-sandbox" not in args
-            ):
+            if hasattr(os, "geteuid") and os.geteuid() == 0 and "--no-sandbox" not in args:
                 args = [*args, "--no-sandbox"]
             account["args"] = args
             working_dir = str(account.get("working_dir", "")).strip()
@@ -682,9 +575,7 @@ class LaunchManager:
                 account["working_dir"] = str(cmd_path.parent)
             else:
                 wd_path = Path(working_dir)
-                if (
-                    wd_path.exists() and wd_path.is_file()
-                ) or wd_path.suffix == ".AppImage":
+                if (wd_path.exists() and wd_path.is_file()) or wd_path.suffix == ".AppImage":
                     account["working_dir"] = str(wd_path.parent)
             return
         if Path(command).name.lower() not in ("node", "node.exe"):
@@ -692,29 +583,16 @@ class LaunchManager:
         program_dir = Path(str(account.get("program_dir", "")).strip())
         if not program_dir.exists():
             return
-        appimage = (
-            program_dir
-            if program_dir.is_file() and program_dir.suffix == ".AppImage"
-            else None
-        )
+        appimage = program_dir if program_dir.is_file() and program_dir.suffix == ".AppImage" else None
         if appimage is None and program_dir.is_dir():
             cands = sorted(program_dir.glob("*.AppImage"))
             appimage = cands[0] if cands else None
         if appimage is None:
             return
-        appimage_args = [
-            str(x)
-            for x in (
-                getattr(self._config, "pallas_protocol_linux_appimage_args", []) or []
-            )
-        ]
+        appimage_args = [str(x) for x in (getattr(self._config, "pallas_protocol_linux_appimage_args", []) or [])]
         if qq.isdigit() and "-q" not in appimage_args and "--qq" not in appimage_args:
             appimage_args.extend(["-q", qq])
-        if (
-            hasattr(os, "geteuid")
-            and os.geteuid() == 0
-            and "--no-sandbox" not in appimage_args
-        ):
+        if hasattr(os, "geteuid") and os.geteuid() == 0 and "--no-sandbox" not in appimage_args:
             # 追加 no-sandbox 参数
             appimage_args.append("--no-sandbox")
         account["command"] = str(appimage)
@@ -731,9 +609,7 @@ class LaunchManager:
         if program_dir_raw:
             program_dir_path = Path(program_dir_raw)
             # 规范工作目录路径
-            if program_dir_path.exists() and program_dir_path.is_file():
-                program_dir_path = program_dir_path.parent
-            elif program_dir_path.suffix == ".AppImage":
+            if program_dir_path.exists() and program_dir_path.is_file() or program_dir_path.suffix == ".AppImage":
                 program_dir_path = program_dir_path.parent
             program_dir_path.mkdir(parents=True, exist_ok=True)
             account["working_dir"] = str(program_dir_path)
@@ -751,10 +627,7 @@ class LaunchManager:
                 cache.mkdir(parents=True, exist_ok=True)
             except OSError:
                 pass
-        bk = (
-            str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY, "") or "").strip().lower()
-            or DEFAULT_PROTOCOL_BACKEND
-        )
+        bk = str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY, "") or "").strip().lower() or DEFAULT_PROTOCOL_BACKEND
         if bk == SNOWLUMA_PROTOCOL_BACKEND and account.get("snowluma_linux_docker"):
             from .snowluma_docker import snowluma_docker_volume_paths
 
@@ -766,10 +639,7 @@ class LaunchManager:
 
     def check_launch_issues(self, account: dict, resolve_qq) -> list[str]:
         issues: list[str] = []
-        bk = (
-            str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY, "") or "").strip().lower()
-            or DEFAULT_PROTOCOL_BACKEND
-        )
+        bk = str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY, "") or "").strip().lower() or DEFAULT_PROTOCOL_BACKEND
         if bk == SNOWLUMA_PROTOCOL_BACKEND:
             return self._check_snowluma_launch_issues(account, resolve_qq)
 
@@ -802,9 +672,7 @@ class LaunchManager:
 
         if account.get("napcat_linux_docker"):
             if not shutil.which("docker"):
-                return [
-                    "未找到 docker，请安装 Docker Engine，或将 pallas_protocol_linux_use_docker=false"
-                ]
+                return ["未找到 docker，请安装 Docker Engine，或将 pallas_protocol_linux_use_docker=false"]
             if not str(account.get("account_data_dir", "")).strip():
                 return ["account_data_dir 为空"]
             from .linux_docker import docker_cache_path, docker_volume_paths
@@ -823,14 +691,9 @@ class LaunchManager:
             and bool(getattr(self._config, "pallas_protocol_linux_use_xvfb", True))
             and not account.get("napcat_linux_docker")
         ):
-            xvfb_command = str(
-                getattr(self._config, "pallas_protocol_linux_xvfb_command", "xvfb-run")
-                or ""
-            ).strip()
+            xvfb_command = str(getattr(self._config, "pallas_protocol_linux_xvfb_command", "xvfb-run") or "").strip()
             if xvfb_command and shutil.which(xvfb_command) is None:
-                issues.append(
-                    f"系统找不到命令: {xvfb_command}（可安装 xvfb，或关闭 pallas_protocol_linux_use_xvfb）"
-                )
+                issues.append(f"系统找不到命令: {xvfb_command}（可安装 xvfb，或关闭 pallas_protocol_linux_use_xvfb）")
 
         command = str(account.get("command", "")).strip()
         if not command:
@@ -843,9 +706,7 @@ class LaunchManager:
 
         program_dir_raw = str(account.get("working_dir", "")).strip()
         if not program_dir_raw:
-            return [
-                "program_dir 为空：请先在「协议资产」页下载 NapCat 发行包，或配置 PALLAS_PROTOCOL_PROGRAM_DIR"
-            ]
+            return ["program_dir 为空：请先在「协议资产」页下载 NapCat 发行包，或配置 PALLAS_PROTOCOL_PROGRAM_DIR"]
         workdir = Path(program_dir_raw)
         # 规范工作目录路径
         if (workdir.exists() and workdir.is_file()) or workdir.suffix == ".AppImage":
@@ -857,9 +718,7 @@ class LaunchManager:
             return [f"program_dir 不是目录: {workdir}"]
 
         args = [str(item) for item in (account.get("args") or [])]
-        script_like = next(
-            (arg for arg in args if arg.endswith((".mjs", ".js", ".cjs"))), None
-        )
+        script_like = next((arg for arg in args if arg.endswith((".mjs", ".js", ".cjs"))), None)
         if script_like:
             script_path = Path(script_like)
             if not script_path.is_absolute():
@@ -874,9 +733,7 @@ class LaunchManager:
         issues: list[str] = []
         if account.get("snowluma_linux_docker"):
             if not shutil.which("docker"):
-                return [
-                    "未找到 docker，请安装 Docker Engine，或在「协议资产」将运行模式改为非 Docker"
-                ]
+                return ["未找到 docker，请安装 Docker Engine，或在「协议资产」将运行模式改为非 Docker"]
             if not str(account.get("account_data_dir", "") or "").strip():
                 return ["account_data_dir 为空"]
             from .snowluma_docker import snowluma_docker_volume_paths
@@ -908,9 +765,7 @@ class LaunchManager:
             issues.append(f"工作目录不存在: {wd_raw}")
 
         args = [str(item) for item in (account.get("args") or [])]
-        script_like = next(
-            (arg for arg in args if arg.endswith((".mjs", ".js", ".cjs"))), None
-        )
+        script_like = next((arg for arg in args if arg.endswith((".mjs", ".js", ".cjs"))), None)
         if script_like:
             sp = Path(script_like)
             if not sp.is_absolute() and wd_raw:
@@ -919,9 +774,7 @@ class LaunchManager:
                 issues.append(f"脚本不存在: {sp}")
         elif not (pd_raw and (pd / "index.mjs").is_file()):
             if not issues:
-                issues.append(
-                    "缺少入口脚本（请配置 program_dir 或账号 program_dir 字段）"
-                )
+                issues.append("缺少入口脚本（请配置 program_dir 或账号 program_dir 字段）")
 
         if not str(account.get("account_data_dir", "") or "").strip():
             issues.append("account_data_dir 为空")
@@ -935,15 +788,10 @@ class LaunchManager:
         env_map: dict[str, str],
         resolve_qq,
     ) -> tuple[str, list[str], dict[str, str], str | None]:
-        return self._platform.resolve_boot_launch(
-            account, command, args, env_map, resolve_qq
-        )
+        return self._platform.resolve_boot_launch(account, command, args, env_map, resolve_qq)
 
     def describe_account_data_paths(self, account: dict) -> dict[str, object]:
-        bk = (
-            str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY, "") or "").strip().lower()
-            or DEFAULT_PROTOCOL_BACKEND
-        )
+        bk = str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY, "") or "").strip().lower() or DEFAULT_PROTOCOL_BACKEND
         if bk == SNOWLUMA_PROTOCOL_BACKEND:
             return self._describe_snowluma_account_paths(account)
 
@@ -1019,9 +867,7 @@ class LaunchManager:
                 " Linux/Docker：数据绑定到容器 /app/snowluma-data、/app/.config、/app/.local/share；"
                 "宿主机目录见 instances/…/docker/snowluma/。"
             )
-            paths.extend(
-                str(p.resolve()) for p in snowluma_docker_volume_paths(account)
-            )
+            paths.extend(str(p.resolve()) for p in snowluma_docker_volume_paths(account))
         return {
             "snowluma_paths": dedupe(paths),
             "qq_nt_candidate_dirs": dedupe(qq_nt),

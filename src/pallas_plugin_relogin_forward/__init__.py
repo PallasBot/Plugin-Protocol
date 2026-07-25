@@ -3,28 +3,32 @@
 from __future__ import annotations
 
 import base64
+from typing import TYPE_CHECKING
 
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, MessageSegment, PrivateMessageEvent
 from nonebot.plugin import PluginMetadata
 from nonebot.rule import Rule
-
-from pallas.api.perm import satisfies_command_permission
 from pallas.api.metadata import (
     PLUGIN_EXTRA_VERSION,
     PLUGIN_HOMEPAGE,
     PLUGIN_MENU_TEMPLATE,
+    SCENE_PRIVATE,
+    join_usage,
+    usage_line,
 )
-from pallas.api.metadata import SCENE_PRIVATE, join_usage, usage_line
+from pallas.api.perm import satisfies_command_permission
 from pallas.api.platform import is_sharded_worker
 from pallas.api.utils import reply_private_message
-from pallas.core.platform.shard.coord.relogin_payload import (
-    ReloginHandleResult,
-    ReplyItem,
-)  # noqa: TC001
 from pallas.core.platform.shard.coord.relogin_worker_forward import (
     forward_relogin_to_hub,
 )
+
+if TYPE_CHECKING:
+    from pallas.core.platform.shard.coord.relogin_payload import (
+        ReloginHandleResult,
+        ReplyItem,
+    )
 
 __plugin_meta__ = PluginMetadata(
     name="牛牛重新上号转发",
@@ -74,18 +78,14 @@ async def relogin_forward_rule(bot: Bot, event: PrivateMessageEvent) -> bool:
     return False
 
 
-async def apply_relogin_result(
-    bot: Bot, event: PrivateMessageEvent, result: ReloginHandleResult
-) -> None:
+async def apply_relogin_result(bot: Bot, event: PrivateMessageEvent, result: ReloginHandleResult) -> None:
     for item in result.replies:
         await send_reply_item(bot, event, item)
     if result.reject_hint:
         await reply_private_message(bot, event, result.reject_hint)
 
 
-async def send_reply_item(
-    bot: Bot, event: PrivateMessageEvent, item: ReplyItem
-) -> None:
+async def send_reply_item(bot: Bot, event: PrivateMessageEvent, item: ReplyItem) -> None:
     if item.kind == "text":
         await reply_private_message(bot, event, item.content)
         return
@@ -102,8 +102,7 @@ async def send_reply_item(
             await reply_private_message(
                 bot,
                 event,
-                "二维码图片发送失败。请先加好友后再私聊「牛牛重新上号」，"
-                "或到协议端控制台扫码登录。",
+                "二维码图片发送失败。请先加好友后再私聊「牛牛重新上号」，或到协议端控制台扫码登录。",
             )
 
 
@@ -132,21 +131,12 @@ async def relogin_forward_handler(bot: Bot, event: PrivateMessageEvent):
         text=text,
     )
     if result is None:
-        await reply_private_message(
-            bot, event, "转发 hub 执行重新上号失败，请稍后重试或联系管理员。"
-        )
+        await reply_private_message(bot, event, "转发 hub 执行重新上号失败，请稍后重试或联系管理员。")
         _active_sessions.discard(key)
         return
 
-    if (
-        key in _active_sessions
-        and not result.replies
-        and not result.reject_hint
-        and not result.session_active
-    ):
-        await reply_private_message(
-            bot, event, "会话已过期，请重新发送「牛牛重新上号」或「创建牛牛」。"
-        )
+    if key in _active_sessions and not result.replies and not result.reject_hint and not result.session_active:
+        await reply_private_message(bot, event, "会话已过期，请重新发送「牛牛重新上号」或「创建牛牛」。")
         _active_sessions.discard(key)
         return
 
