@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
+import signal
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -16,6 +18,7 @@ if TYPE_CHECKING:
 
 _PERCENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
 _EMIT_MIN_INTERVAL_S = 0.2
+_IDLE_HEARTBEAT_S = 8.0
 
 
 @dataclass
@@ -54,6 +57,17 @@ class DockerPullCoordinator:
 
     def get_job(self, job_id: str) -> DockerPullJobState | None:
         return self._jobs.get(job_id)
+
+    def find_running_job(self, *, image: str, protocol: str) -> str | None:
+        """同镜像同协议只跑一个拉取任务，避免并发 docker pull 互相卡住。"""
+        want_img = str(image or "").strip()
+        want_proto = str(protocol or "").strip().lower()
+        for jid, job in self._jobs.items():
+            if job.status != "running":
+                continue
+            if str(job.image).strip() == want_img and str(job.protocol).strip().lower() == want_proto:
+                return jid
+        return None
 
     def job_to_dict(self, job_id: str) -> dict[str, Any] | None:
         job = self.get_job(job_id)
@@ -184,7 +198,7 @@ class DockerPullCoordinator:
                 job.phase = "failed"
                 job.code = -1
                 job.message = f"拉取任务异常：{exc}"
-                self._append_line(job, job.message, percent=100)
+                self.append_line(job, job.message, percent=100, force_emit=True)
                 job.finished_at = datetime.now(UTC).isoformat()
                 self._emit(job_id)
             finally:
@@ -194,17 +208,30 @@ class DockerPullCoordinator:
         return job_id
 
 
+def _kill_process_group(pid: int) -> None:
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+
+
 async def stream_subprocess_lines(
     *argv: str,
     stdin_text: str | None = None,
     on_line: Callable[[str], None],
+    on_idle: Callable[[], None] | None = None,
+    idle_s: float = _IDLE_HEARTBEAT_S,
 ) -> int:
-    """按行回调；同时按 ``\\n`` / ``\\r`` 切分（docker pull 进度多用 ``\\r``）。"""
+    """按行回调；按 ``\\n`` / ``\\r`` 切分。独立进程组便于取消时杀掉 docker 子进程。"""
     proc = await asyncio.create_subprocess_exec(
         *argv,
         stdin=asyncio.subprocess.PIPE if stdin_text is not None else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
+        start_new_session=True,
     )
     assert proc.stdout is not None
     if stdin_text is not None and proc.stdin is not None:
@@ -213,11 +240,10 @@ async def stream_subprocess_lines(
         proc.stdin.close()
 
     buf = b""
-    while True:
-        chunk = await proc.stdout.read(4096)
-        if not chunk:
-            break
-        buf += chunk
+    idle = max(1.0, float(idle_s))
+
+    def flush_pieces() -> None:
+        nonlocal buf
         while True:
             n_idx = buf.find(b"\n")
             r_idx = buf.find(b"\r")
@@ -230,9 +256,37 @@ async def stream_subprocess_lines(
                 if buf.startswith(b"\n"):
                     buf = buf[1:]
             on_line(piece.decode("utf-8", errors="replace"))
-    if buf:
-        on_line(buf.decode("utf-8", errors="replace"))
-    return await proc.wait()
+
+    try:
+        while True:
+            try:
+                chunk = await asyncio.wait_for(proc.stdout.read(4096), timeout=idle)
+            except TimeoutError:
+                if proc.returncode is not None:
+                    break
+                if on_idle is not None:
+                    on_idle()
+                continue
+            if not chunk:
+                break
+            buf += chunk
+            flush_pieces()
+        if buf:
+            on_line(buf.decode("utf-8", errors="replace"))
+            buf = b""
+        return await proc.wait()
+    except asyncio.CancelledError:
+        if proc.returncode is None and proc.pid:
+            _kill_process_group(proc.pid)
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except (TimeoutError, asyncio.CancelledError):
+                if proc.pid:
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError, OSError):
+                        pass
+        raise
 
 
 def estimate_pull_percent(line: str, fallback: int) -> int:
@@ -248,8 +302,11 @@ def estimate_pull_percent(line: str, fallback: int) -> int:
             # docker 层内 0–100% 映射到总进度 15–88
             mapped = 15 + int(parsed * 0.73)
             return max(fallback, min(88, mapped))
-    if "download complete" in lower or "pull complete" in lower:
-        return max(fallback, 70)
+    # 单层 Download complete 很常见，不能直接跳到 70%
+    if "download complete" in lower:
+        return max(fallback, min(fallback + 3, 55))
+    if "pull complete" in lower:
+        return max(fallback, min(fallback + 8, 72))
     if "extracting" in lower:
         return max(fallback, 75)
     if "pulling fs layer" in lower:

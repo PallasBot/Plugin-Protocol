@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+## [4.0.43] - 2026-07-25
+
+- fix(runtime): 同镜像 Docker 拉取任务单飞，避免并发 `docker pull` 互相卡住
+- fix(runtime): 单层 `Download complete` 不再误标为总进度 70%；无输出时心跳提示「仍在拉取」
+- fix(runtime): pull 子进程独立进程组，任务取消时可终止残留 docker 进程
+
 ## [4.0.42] - 2026-07-25
 
 - feat(runtime): Docker 镜像拉取改为异步任务（`job_id` + 状态查询 + SSE 进度），并支持按 `protocol=napcat|snowluma` 选择目标镜像

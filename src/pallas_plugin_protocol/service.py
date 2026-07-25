@@ -493,6 +493,15 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
     ) -> dict[str, object]:
         img, proto = self._resolve_docker_pull_image(image, protocol=protocol)
 
+        existing_id = self._docker_pull.find_running_job(image=img, protocol=proto)
+        if existing_id:
+            job = self._docker_pull.get_job(existing_id)
+            return {
+                "job_id": existing_id,
+                "job": job.to_dict() if job else {"job_id": existing_id},
+                "reused": True,
+            }
+
         async def run_job(job: DockerPullJobState) -> None:
             await self._run_docker_pull_job(job)
 
@@ -523,14 +532,31 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         job.progress_percent = 5
         self._docker_pull.emit(job.job_id)
         pull_pct = 5
+        idle_ticks = 0
 
         def on_pull_line(line: str) -> None:
-            nonlocal pull_pct
+            nonlocal pull_pct, idle_ticks
+            idle_ticks = 0
             pull_pct = estimate_pull_percent(line, pull_pct)
             self._docker_pull.append_line(job, line, percent=min(pull_pct, 88))
 
+        def on_pull_idle() -> None:
+            nonlocal idle_ticks
+            idle_ticks += 1
+            # 无新输出时提示仍在进行，避免 UI 卡在某一层的 Download complete
+            soft = min(88, max(pull_pct, 5 + idle_ticks))
+            job.progress_percent = max(job.progress_percent, soft)
+            job.message = f"仍在拉取 {img}（等待 Docker 输出…）"
+            self._docker_pull.emit(job.job_id)
+
         try:
-            code = await stream_subprocess_lines("docker", "pull", img, on_line=on_pull_line)
+            code = await stream_subprocess_lines(
+                "docker",
+                "pull",
+                img,
+                on_line=on_pull_line,
+                on_idle=on_pull_idle,
+            )
         except FileNotFoundError:
             job.status = "failed"
             job.phase = "failed"

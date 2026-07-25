@@ -1,6 +1,6 @@
 [project]
 name = "pallas-plugin-protocol"
-version = "4.0.42"
+version = "4.0.43"
 description = "Pallas-Bot 官方扩展：NapCat/SnowLuma 协议端管理、牛牛重新上号与分片转发。"
 readme = "README.md"
 license = { file = "LICENSE" }
