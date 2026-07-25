@@ -16,7 +16,8 @@ _PKG = "pallas_plugin_protocol_docker_prod_test"
 def load_module(qualified: str, filename: str):
     path = _ROOT / filename
     spec = importlib.util.spec_from_file_location(qualified, path)
-    assert spec and spec.loader
+    assert spec is not None
+    assert spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     sys.modules[qualified] = mod
     spec.loader.exec_module(mod)
@@ -36,9 +37,7 @@ for name, file in (
     load_module(f"{_PKG}.{name}", file)
 
 snowluma_docker = load_module(f"{_PKG}.snowluma_docker", "snowluma_docker.py")
-append_snowluma_docker_resource_limits = (
-    snowluma_docker.append_snowluma_docker_resource_limits
-)
+append_snowluma_docker_resource_limits = snowluma_docker.append_snowluma_docker_resource_limits
 build_snowluma_docker_run_argv = snowluma_docker.build_snowluma_docker_run_argv
 snowluma_docker_program_dir_marker = snowluma_docker.snowluma_docker_program_dir_marker
 snowluma_dockerfile = snowluma_docker.snowluma_dockerfile
@@ -116,10 +115,7 @@ def test_snowluma_uses_fixed_local_auto_login_image() -> None:
     }
     argv = build_snowluma_docker_run_argv(account, cfg, lambda _: "123")
     assert argv[-1] == "pallas/snowluma-auto-login:latest"
-    assert (
-        snowluma_docker_program_dir_marker(cfg)
-        == "docker:snowluma:pallas/snowluma-auto-login:latest"
-    )
+    assert snowluma_docker_program_dir_marker(cfg) == "docker:snowluma:pallas/snowluma-auto-login:latest"
 
 
 def test_snowluma_dockerfile_pins_base_image_and_installs_xdotool() -> None:
@@ -139,12 +135,12 @@ def test_ensure_snowluma_docker_image_builds_local_tag(monkeypatch) -> None:
 
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs.get("input")))
-        return subprocess.CompletedProcess(
-            argv, 1 if "inspect" in argv else 0, b"", b""
-        )
+        return subprocess.CompletedProcess(argv, 1 if "inspect" in argv else 0, b"", b"")
 
     monkeypatch.setattr(snowluma_docker.subprocess, "run", fake_run)
-    assert snowluma_docker.ensure_snowluma_docker_image() == (True, "")
+    ok, msg = snowluma_docker.ensure_snowluma_docker_image()
+    assert ok is True
+    assert "pallas/snowluma-auto-login:latest" in msg or msg == ""
     assert calls[1][0] == [
         "docker",
         "build",
@@ -154,6 +150,48 @@ def test_ensure_snowluma_docker_image_builds_local_tag(monkeypatch) -> None:
     ]
     assert "FROM motricseven7/snowluma:latest" in str(calls[1][1])
     assert "xdotool" in str(calls[1][1])
+
+
+def test_rebuild_snowluma_docker_image_forces_build_with_pulled_base(monkeypatch) -> None:
+    calls: list[tuple[list[str], str | None]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs.get("input")))
+        return subprocess.CompletedProcess(argv, 0, "built\n", "")
+
+    monkeypatch.setattr(snowluma_docker.subprocess, "run", fake_run)
+    ok, out = snowluma_docker.rebuild_snowluma_docker_image("motricseven7/snowluma:nightly")
+    assert ok is True
+    assert len(calls) == 1
+    assert "inspect" not in calls[0][0]
+    assert calls[0][0] == [
+        "docker",
+        "build",
+        "--tag",
+        "pallas/snowluma-auto-login:latest",
+        "-",
+    ]
+    assert "FROM motricseven7/snowluma:nightly" in str(calls[0][1])
+    assert "built" in out
+
+
+def test_ensure_snowluma_docker_image_force_skips_inspect(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(snowluma_docker.subprocess, "run", fake_run)
+    assert snowluma_docker.ensure_snowluma_docker_image(force=True)[0] is True
+    assert all("inspect" not in argv for argv in calls)
+    assert calls[0][:3] == ["docker", "build", "--tag"]
+
+
+def test_snowluma_dockerfile_accepts_custom_base() -> None:
+    dockerfile = snowluma_dockerfile("registry.example/snowluma:v2")
+    assert "FROM registry.example/snowluma:v2" in dockerfile
+    assert "FROM motricseven7/snowluma:latest" not in dockerfile
 
 
 def test_clear_snowluma_login_state_preserves_snowluma_config(tmp_path: Path) -> None:

@@ -55,6 +55,12 @@ from .docker_cli import (
 from .docker_cli import (
     docker_stderr_suggests_host_port_bind_conflict as _docker_stderr_suggests_host_port_bind_conflict,
 )
+from .docker_pull_jobs import (
+    DockerPullCoordinator,
+    DockerPullJobState,
+    estimate_pull_percent,
+    stream_subprocess_lines,
+)
 from .launch_manager import LaunchManager
 from .runtime.installer import (
     NapCatRuntimeStore,
@@ -137,6 +143,7 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
             webui_port_fallback_min=int(getattr(self._config, "pallas_protocol_webui_port_min", 6099)),
         )
         self._batch = AccountBatchCoordinator()
+        self._docker_pull = DockerPullCoordinator()
         self._snowluma_auto_login_tasks: dict[str, asyncio.Task[None]] = {}
 
     def _protocol_runtime_backend(
@@ -454,50 +461,184 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         )
         return self.runtime_overview()
 
-    async def pull_docker_image(self, image: str | None = None) -> dict[str, object]:
+    def _resolve_docker_pull_image(
+        self,
+        image: str | None = None,
+        *,
+        protocol: str | None = None,
+    ) -> tuple[str, str]:
         profile = self.runtime_profile()
-        img = str(image or profile.get("docker_image", "")).strip() or "mlikiowa/napcat-docker:latest"
-        if not shutil.which("docker"):
-            return {
-                "ok": False,
-                "image": img,
-                "code": -1,
-                "output": (
-                    "未找到 docker 命令。默认 Bot 容器镜像不含 Docker CLI，且 compose 未挂载 docker.sock；"
-                    "可在宿主机执行 docker pull 拉取 NapCat/SnowLuma 镜像，或按 docker-compose.yml 注释挂载 socket "
-                    "并在镜像内安装 docker CLI。"
-                ),
-            }
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "docker",
-                "pull",
-                img,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+        proto = str(protocol or "").strip().lower()
+        if proto == "snowluma":
+            default_img = (
+                str(profile.get("snowluma_docker_image", "")).strip()
+                or str(getattr(self._config, "pallas_protocol_snowluma_docker_image", "") or "").strip()
+                or "motricseven7/snowluma:latest"
             )
-            out, _ = await proc.communicate()
+        elif proto == "napcat":
+            default_img = str(profile.get("docker_image", "")).strip() or "mlikiowa/napcat-docker:latest"
+        else:
+            default_img = str(profile.get("docker_image", "")).strip() or "mlikiowa/napcat-docker:latest"
+        img = str(image or "").strip() or default_img
+        return img, proto
+
+    def docker_pull_coordinator(self) -> DockerPullCoordinator:
+        return self._docker_pull
+
+    async def start_docker_pull_job(
+        self,
+        image: str | None = None,
+        *,
+        protocol: str | None = None,
+    ) -> dict[str, object]:
+        img, proto = self._resolve_docker_pull_image(image, protocol=protocol)
+
+        async def run_job(job: DockerPullJobState) -> None:
+            await self._run_docker_pull_job(job)
+
+        job_id = await self._docker_pull.start_job(image=img, protocol=proto, run_fn=run_job)
+        job = self._docker_pull.get_job(job_id)
+        return {"job_id": job_id, "job": job.to_dict() if job else {"job_id": job_id}}
+
+    async def _run_docker_pull_job(self, job: DockerPullJobState) -> None:
+        img = job.image
+        proto = job.protocol
+        if not shutil.which("docker"):
+            job.status = "failed"
+            job.phase = "failed"
+            job.code = -1
+            msg = (
+                "未找到 docker 命令。默认 Bot 容器镜像不含 Docker CLI，且 compose 未挂载 docker.sock；"
+                "可在宿主机执行 docker pull 拉取 NapCat/SnowLuma 镜像，或按 docker-compose.yml 注释挂载 socket "
+                "并在镜像内安装 docker CLI。"
+            )
+            self._docker_pull.append_line(job, msg, percent=100, force_emit=True)
+            job.message = msg
+            job.finished_at = datetime.now(UTC).isoformat()
+            self._docker_pull.emit(job.job_id)
+            return
+
+        job.phase = "pulling"
+        job.message = f"正在拉取 {img}…"
+        job.progress_percent = 5
+        self._docker_pull.emit(job.job_id)
+        pull_pct = 5
+
+        def on_pull_line(line: str) -> None:
+            nonlocal pull_pct
+            pull_pct = estimate_pull_percent(line, pull_pct)
+            self._docker_pull.append_line(job, line, percent=min(pull_pct, 88))
+
+        try:
+            code = await stream_subprocess_lines("docker", "pull", img, on_line=on_pull_line)
         except FileNotFoundError:
-            return {
-                "ok": False,
-                "image": img,
-                "code": -1,
-                "output": "无法启动 docker 进程（未找到可执行文件）。",
-            }
+            job.status = "failed"
+            job.phase = "failed"
+            job.code = -1
+            self._docker_pull.append_line(job, "无法启动 docker 进程（未找到可执行文件）。", percent=100)
+            job.finished_at = datetime.now(UTC).isoformat()
+            self._docker_pull.emit(job.job_id)
+            return
         except OSError as e:
-            return {
-                "ok": False,
-                "image": img,
-                "code": -1,
-                "output": f"执行 docker pull 失败：{e}",
-            }
-        text = out.decode("utf-8", errors="replace") if out else ""
-        return {
-            "ok": proc.returncode == 0,
-            "image": img,
-            "code": proc.returncode,
-            "output": text[-4000:],
-        }
+            job.status = "failed"
+            job.phase = "failed"
+            job.code = -1
+            self._docker_pull.append_line(job, f"执行 docker pull 失败：{e}", percent=100)
+            job.finished_at = datetime.now(UTC).isoformat()
+            self._docker_pull.emit(job.job_id)
+            return
+
+        job.code = code
+        if code != 0:
+            job.status = "failed"
+            job.phase = "failed"
+            job.message = f"docker pull 失败 (exit {code})"
+            self._docker_pull.append_line(job, job.message, percent=100)
+            job.finished_at = datetime.now(UTC).isoformat()
+            self._docker_pull.emit(job.job_id)
+            return
+
+        if proto != "snowluma":
+            job.status = "completed"
+            job.phase = "completed"
+            job.progress_percent = 100
+            job.message = "拉取完成"
+            self._docker_pull.append_line(job, "拉取完成", percent=100)
+            job.finished_at = datetime.now(UTC).isoformat()
+            self._docker_pull.emit(job.job_id)
+            return
+
+        from .snowluma_docker import SNOWLUMA_DOCKER_IMAGE, snowluma_dockerfile
+
+        job.phase = "rebuilding"
+        job.rebuild_image = SNOWLUMA_DOCKER_IMAGE
+        job.message = f"正在重建派生镜像 {SNOWLUMA_DOCKER_IMAGE}…"
+        job.progress_percent = 90
+        self._docker_pull.append_line(
+            job,
+            f"--- rebuild {SNOWLUMA_DOCKER_IMAGE} ---",
+            percent=90,
+        )
+        try:
+            build_code = await stream_subprocess_lines(
+                "docker",
+                "build",
+                "--tag",
+                SNOWLUMA_DOCKER_IMAGE,
+                "-",
+                stdin_text=snowluma_dockerfile(img),
+                on_line=lambda line: self._docker_pull.append_line(job, line, percent=94),
+            )
+        except (FileNotFoundError, OSError) as e:
+            job.status = "failed"
+            job.phase = "failed"
+            job.rebuild_ok = False
+            job.code = -2
+            self._docker_pull.append_line(job, f"构建派生镜像失败：{e}", percent=100)
+            job.finished_at = datetime.now(UTC).isoformat()
+            self._docker_pull.emit(job.job_id)
+            return
+
+        job.rebuild_ok = build_code == 0
+        if build_code != 0:
+            job.status = "failed"
+            job.phase = "failed"
+            job.code = -2
+            job.message = f"派生镜像重建失败 (exit {build_code})"
+            self._docker_pull.append_line(job, job.message, percent=100)
+        else:
+            job.status = "completed"
+            job.phase = "completed"
+            job.progress_percent = 100
+            job.message = "拉取并重建派生镜像完成"
+            self._docker_pull.append_line(job, job.message, percent=100)
+        job.finished_at = datetime.now(UTC).isoformat()
+        self._docker_pull.emit(job.job_id)
+
+    async def pull_docker_image(
+        self,
+        image: str | None = None,
+        *,
+        protocol: str | None = None,
+    ) -> dict[str, object]:
+        """兼容旧调用：启动任务并等待结束后返回汇总结果。"""
+        started = await self.start_docker_pull_job(image, protocol=protocol)
+        job_id = str(started.get("job_id") or "")
+        while True:
+            job = self._docker_pull.get_job(job_id)
+            if job is None:
+                return {"ok": False, "image": str(image or ""), "code": -1, "output": "拉取任务丢失"}
+            if job.status != "running":
+                return {
+                    "ok": job.status == "completed",
+                    "image": job.image,
+                    "code": job.code,
+                    "output": job.output[-4000:],
+                    "rebuild_image": job.rebuild_image,
+                    "rebuild_ok": job.rebuild_ok,
+                    "job_id": job.job_id,
+                }
+            await asyncio.sleep(0.25)
 
     async def list_local_docker_images(self, *, protocol: str | None = None) -> dict[str, object]:
         if not shutil.which("docker"):
@@ -1262,6 +1403,20 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
             self._runtimes[account_id] = NapCatRuntime(logs=deque(maxlen=self._config.pallas_protocol_max_log_lines))
         return self._runtimes[account_id]
 
+    def _process_track_id_for_account(self, account_id: str, account: dict | None = None) -> str:
+        """进程/日志缓冲键：SnowLuma 共享 Runtime 用 slrt:<runtime_id>，其余用账号 id。"""
+        acc = account if account is not None else self._accounts.get(account_id)
+        if not acc:
+            return account_id
+        rid = str(acc.get(SNOWLUMA_RUNTIME_ID_KEY, "") or "").strip()
+        if not rid:
+            return account_id
+        if str(acc.get(ACCOUNT_PROTOCOL_BACKEND_KEY) or "").strip().lower() != SNOWLUMA_PROTOCOL_BACKEND:
+            return account_id
+        from .snowluma_runtime_ops import snowluma_process_track_key
+
+        return snowluma_process_track_key(rid)
+
     def list_accounts(self) -> list[dict]:
         out: list[dict] = []
         for account_id, account in self._accounts.items():
@@ -1786,24 +1941,17 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         be.apply_defaults(account, self._resolve_qq)
         be.prepare_dirs(account)
         be.sync_all_configs(account, self._resolve_qq)
-        rid = str(account.get(SNOWLUMA_RUNTIME_ID_KEY, "") or "").strip()
-        track_id = account_id
-        if rid and account.get("snowluma_linux_docker") is not False:
-            from .snowluma_runtime_ops import snowluma_process_track_key
-
-            # SnowLuma（Docker 或 Shell）进程跟踪键用 Runtime
-            if str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY) or "").strip().lower() == SNOWLUMA_PROTOCOL_BACKEND:
-                track_id = snowluma_process_track_key(rid)
+        track_id = self._process_track_id_for_account(account_id, account)
         runtime = self._runtime(track_id)
         async with runtime.lock:
             if account.get("napcat_linux_docker"):
                 if self._linux_docker_container_running_sync(account):
-                    await self._ensure_docker_logs_follower_locked(account_id, account, runtime)
+                    await self._ensure_docker_logs_follower_locked(account_id, account, runtime, track_id=track_id)
                     return self._compose_account_state(account_id, account)
                 return await self._start_account_linux_docker(account_id, account, runtime)
             if account.get("snowluma_linux_docker"):
                 if self._linux_docker_container_running_sync(account):
-                    await self.ensure_docker_logs_if_needed(account_id)
+                    await self._ensure_docker_logs_follower_locked(account_id, account, runtime, track_id=track_id)
                     self.schedule_snowluma_auto_quick_login(account_id)
                     try:
                         await self.snowluma_inject_hook_via_webui(account_id)
@@ -1878,16 +2026,26 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         if not account or not (account.get("napcat_linux_docker") or account.get("snowluma_linux_docker")):
             return
         self._protocol_runtime_backend(account).apply_defaults(account, self._resolve_qq)
-        runtime = self._runtime(account_id)
+        track_id = self._process_track_id_for_account(account_id, account)
+        runtime = self._runtime(track_id)
         async with runtime.lock:
-            await self._ensure_docker_logs_follower_locked(account_id, account, runtime)
+            await self._ensure_docker_logs_follower_locked(account_id, account, runtime, track_id=track_id)
 
-    async def _ensure_docker_logs_follower_locked(self, account_id: str, account: dict, runtime: NapCatRuntime) -> None:
+    async def _ensure_docker_logs_follower_locked(
+        self,
+        account_id: str,
+        account: dict,
+        runtime: NapCatRuntime,
+        *,
+        track_id: str | None = None,
+    ) -> None:
         from nonebot import logger
 
         name = self._linux_docker_container_name(account)
         if not self._linux_docker_container_running_sync(account):
             return
+
+        drain_key = track_id or self._process_track_id_for_account(account_id, account)
 
         following_ok = (
             runtime.process is not None
@@ -1939,7 +2097,7 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         if runtime.started_at is None:
             runtime.started_at = datetime.now(UTC)
         runtime.process = logp
-        runtime.drain_task = asyncio.create_task(self._drain_logs(account_id))
+        runtime.drain_task = asyncio.create_task(self._drain_logs(drain_key))
 
     async def _start_account_linux_docker(self, account_id: str, account: dict, runtime: NapCatRuntime) -> dict:
         be = self._protocol_runtime_backend(account)
@@ -2119,10 +2277,7 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         if not snowluma_docker_container_running_sync(name):
             raise ValueError("容器已创建但未在运行，请检查: docker logs " + name)
         runtime.started_at = datetime.now(UTC)
-        from .snowluma_runtime_ops import snowluma_process_track_key
-
-        rid = str(account.get(SNOWLUMA_RUNTIME_ID_KEY, "") or "").strip()
-        drain_key = snowluma_process_track_key(rid) if rid else account_id
+        drain_key = self._process_track_id_for_account(account_id, account)
         logp = await asyncio.create_subprocess_exec(
             "docker",
             "logs",
@@ -2144,7 +2299,8 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         pending = self._snowluma_auto_login_tasks.pop(account_id, None)
         if pending is not None and not pending.done():
             pending.cancel()
-        runtime = self._runtimes.get(account_id) or self._runtime(account_id)
+        track_id = self._process_track_id_for_account(account_id, account)
+        runtime = self._runtimes.get(track_id) or self._runtimes.get(account_id) or self._runtime(track_id)
         async with runtime.lock:
             if runtime.drain_task and not runtime.drain_task.done():
                 runtime.drain_task.cancel()
@@ -2356,12 +2512,7 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         if lines <= 0:
             return []
         account = self._accounts.get(account_id) or {}
-        rid = str(account.get(SNOWLUMA_RUNTIME_ID_KEY, "") or "").strip()
-        track_id = account_id
-        if rid and (str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY) or "").strip().lower() == SNOWLUMA_PROTOCOL_BACKEND):
-            from .snowluma_runtime_ops import snowluma_process_track_key
-
-            track_id = snowluma_process_track_key(rid)
+        track_id = self._process_track_id_for_account(account_id, account)
         runtime = self._runtime(track_id)
         return list(runtime.logs)[-lines:]
 
@@ -2678,7 +2829,10 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
                 await process.wait()
             code = process.returncode
             acc = self._accounts.get(account_id) or {}
-            if acc.get("napcat_linux_docker") or acc.get("snowluma_linux_docker"):
+            is_docker_follow = bool(
+                acc.get("napcat_linux_docker") or acc.get("snowluma_linux_docker") or runtime.docker_container_name
+            )
+            if is_docker_follow:
                 runtime.process = None
             elif runtime.expect_bootmain_detach:
                 if code == 0:
@@ -2696,12 +2850,7 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
     def _compose_account_state(self, account_id: str, account: dict, *, brief: bool = False) -> dict:
         be = self._protocol_runtime_backend(account)
         be.apply_defaults(account, self._resolve_qq)
-        rid = str(account.get(SNOWLUMA_RUNTIME_ID_KEY, "") or "").strip()
-        track_key = account_id
-        if rid and (str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY) or "").strip().lower() == SNOWLUMA_PROTOCOL_BACKEND):
-            from .snowluma_runtime_ops import snowluma_process_track_key
-
-            track_key = snowluma_process_track_key(rid)
+        track_key = self._process_track_id_for_account(account_id, account)
         runtime = self._runtimes.get(track_key) or self._runtimes.get(account_id)
         process_running = False
         pid = None

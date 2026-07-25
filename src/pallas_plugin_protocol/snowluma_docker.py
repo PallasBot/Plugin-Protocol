@@ -20,9 +20,10 @@ SNOWLUMA_DOCKER_BASE_IMAGE = "motricseven7/snowluma:latest"
 SNOWLUMA_DOCKER_IMAGE = "pallas/snowluma-auto-login:latest"
 
 
-def snowluma_dockerfile() -> str:
+def snowluma_dockerfile(base_image: str | None = None) -> str:
     packages = "xdotool imagemagick tesseract-ocr tesseract-ocr-chi-sim"
-    return f"""FROM {SNOWLUMA_DOCKER_BASE_IMAGE}
+    base = str(base_image or "").strip() or SNOWLUMA_DOCKER_BASE_IMAGE
+    return f"""FROM {base}
 USER root
 RUN apt-get update \\
  && apt-get install -y --no-install-recommends {packages} \\
@@ -39,6 +40,7 @@ __all__ = [
     "clear_snowluma_login_state",
     "clear_snowluma_login_state_for_uin",
     "ensure_snowluma_docker_image",
+    "rebuild_snowluma_docker_image",
     "snowluma_docker_container_name",
     "snowluma_docker_container_name_for_runtime",
     "snowluma_docker_container_running",
@@ -56,23 +58,13 @@ __all__ = [
 ]
 
 
-def ensure_snowluma_docker_image() -> tuple[bool, str]:
-    """在首次使用前构建含 xdotool 的本地 SnowLuma 镜像。"""
-    try:
-        inspect = subprocess.run(
-            ["docker", "image", "inspect", SNOWLUMA_DOCKER_IMAGE],
-            capture_output=True,
-            timeout=30,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as err:
-        return False, f"检查 SnowLuma Docker 镜像失败：{err}"
-    if inspect.returncode == 0:
-        return True, ""
+def rebuild_snowluma_docker_image(base_image: str | None = None) -> tuple[bool, str]:
+    """强制重建含 xdotool 等依赖的本地派生镜像（FROM 上游 SnowLuma）。"""
+    base = str(base_image or "").strip() or SNOWLUMA_DOCKER_BASE_IMAGE
     try:
         build = subprocess.run(
             ["docker", "build", "--tag", SNOWLUMA_DOCKER_IMAGE, "-"],
-            input=snowluma_dockerfile(),
+            input=snowluma_dockerfile(base),
             text=True,
             capture_output=True,
             timeout=600,
@@ -80,10 +72,31 @@ def ensure_snowluma_docker_image() -> tuple[bool, str]:
         )
     except (OSError, subprocess.TimeoutExpired) as err:
         return False, f"构建 SnowLuma Docker 镜像失败：{err}"
-    if build.returncode == 0:
-        return True, ""
     output = (build.stdout or build.stderr or "").strip()
+    if build.returncode == 0:
+        return True, output[-2000:] if output else f"已重建 {SNOWLUMA_DOCKER_IMAGE}（FROM {base}）"
     return False, f"构建 SnowLuma Docker 镜像失败：{output[-1200:]}"
+
+
+def ensure_snowluma_docker_image(
+    *,
+    base_image: str | None = None,
+    force: bool = False,
+) -> tuple[bool, str]:
+    """在首次使用前构建含 xdotool 的本地 SnowLuma 镜像；force=True 时强制重建。"""
+    if not force:
+        try:
+            inspect = subprocess.run(
+                ["docker", "image", "inspect", SNOWLUMA_DOCKER_IMAGE],
+                capture_output=True,
+                timeout=30,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as err:
+            return False, f"检查 SnowLuma Docker 镜像失败：{err}"
+        if inspect.returncode == 0:
+            return True, ""
+    return rebuild_snowluma_docker_image(base_image)
 
 
 def snowluma_docker_container_name_for_runtime(runtime: dict) -> str:

@@ -470,9 +470,49 @@ def register_pallas_protocol_routes(
     ):
         _auth(x_pallas_protocol_token, token)
         image = ""
+        protocol = ""
         if isinstance(payload, dict):
             image = str(payload.get("image", "") or "").strip()
-        return await manager.pull_docker_image(image or None)
+            protocol = str(payload.get("protocol", "") or "").strip().lower()
+        if protocol and protocol not in ("napcat", "snowluma"):
+            raise HTTPException(status_code=400, detail="protocol 仅支持 napcat、snowluma 或省略")
+        return await manager.start_docker_pull_job(image or None, protocol=protocol or None)
+
+    @app.get(f"{base}/api/runtime/docker/pull/{{job_id}}")
+    async def runtime_docker_pull_status(
+        job_id: str,
+        token: str | None = Query(default=None),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
+    ):
+        _auth(x_pallas_protocol_token, token)
+        job = manager.docker_pull_coordinator().job_to_dict(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="拉取任务不存在")
+        return {"job": job}
+
+    @app.get(f"{base}/api/runtime/docker/pull/{{job_id}}/stream")
+    async def runtime_docker_pull_stream(
+        job_id: str,
+        token: str | None = Query(default=None),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
+    ):
+        _auth(x_pallas_protocol_token, token)
+        if manager.docker_pull_coordinator().get_job(job_id) is None:
+            raise HTTPException(status_code=404, detail="拉取任务不存在")
+
+        async def _iter():
+            async for chunk in manager.docker_pull_coordinator().subscribe_sse(job_id):
+                yield chunk
+
+        return StreamingResponse(
+            _iter(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @app.get(f"{base}/api/runtime/docker/images")
     async def runtime_docker_images(

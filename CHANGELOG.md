@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+## [4.0.42] - 2026-07-25
+
+- feat(runtime): Docker 镜像拉取改为异步任务（`job_id` + 状态查询 + SSE 进度），并支持按 `protocol=napcat|snowluma` 选择目标镜像
+- feat(snowluma): 拉取上游镜像后强制重建 `pallas/snowluma-auto-login` 派生镜像
+- fix(runtime): SnowLuma 账号日志按 runtime track id 归集，避免容器日志空白
+- fix(runtime): 解析 docker `\r` 刷新行与层内百分比，拉取进度可真实推进
+
 ## [4.0.41] - 2026-07-25
 
 - feat: PluginMetadata.extra 增加 `help_tag`（帮助图分组）
