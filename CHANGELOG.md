@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+## [4.0.46] - 2026-07-26
+
+- fix(snowluma): 切换到新建 Runtime 时同步 OneBot 宿主机端口到 Runtime，避免 Docker 启动报缺端口
+- fix(snowluma): 挂载已有 Runtime 时忽略表单镜像，沿用 Runtime 已有镜像
+
 ## [4.0.45] - 2026-07-26
 
 - feat(config): WebUI 配置字段增加 ui_group 分组与 ui_order 排序
