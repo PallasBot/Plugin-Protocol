@@ -75,11 +75,11 @@ class RuntimeRegistry:
     def update(self, runtime_id: str, payload: dict) -> dict:
         if not self.runtime or runtime_id != self.runtime["id"]:
             raise KeyError("Runtime 不存在")
-        image = payload.get("snowluma_docker_image")
-        if image is None or (isinstance(image, str) and not str(image).strip()):
-            self.runtime.pop("snowluma_docker_image", None)
-        else:
-            self.runtime["snowluma_docker_image"] = str(image).strip()
+        for key, val in payload.items():
+            if val is None or (isinstance(val, str) and not str(val).strip()):
+                self.runtime.pop(key, None)
+            else:
+                self.runtime[key] = val
         return dict(self.runtime)
 
     def delete(self, runtime_id: str) -> None:
@@ -89,11 +89,18 @@ class RuntimeRegistry:
 
 
 class Backend:
-    def __init__(self, calls: list[str]) -> None:
+    def __init__(self, calls: list[str], *, allocate_ports: bool = False) -> None:
         self.calls = calls
+        self.allocate_ports = allocate_ports
 
     def apply_defaults(self, account: dict, resolve_qq: object) -> None:
         self.calls.append("defaults")
+        if self.allocate_ports:
+            account["snowluma_linux_docker"] = True
+            account["snowluma_docker_host_onebot_http"] = 17100
+            account["snowluma_docker_host_onebot_ws"] = 17101
+            if "webui_port" not in account:
+                account["webui_port"] = 6200
 
     def prepare_dirs(self, account: dict) -> None:
         self.calls.append("prepare")
@@ -114,7 +121,11 @@ async def record_start(service: PallasProtocolService, account_id: str) -> None:
     service.started.append(account_id)
 
 
-def make_service(runtime: dict | None = None) -> tuple[PallasProtocolService, dict]:
+def make_service(
+    runtime: dict | None = None,
+    *,
+    allocate_ports: bool = False,
+) -> tuple[PallasProtocolService, dict]:
     account = {
         "id": "10001",
         "display_name": "测试号",
@@ -130,7 +141,7 @@ def make_service(runtime: dict | None = None) -> tuple[PallasProtocolService, di
     service.calls = []
     service.started = []
     service._resolve_qq = lambda item: str(item["qq"])
-    service._protocol_runtime_backend = lambda item: Backend(service.calls)
+    service._protocol_runtime_backend = lambda item: Backend(service.calls, allocate_ports=allocate_ports)
     service._refresh_linux_docker_run_argv = lambda item: service.calls.append("docker-argv")
     service._merge_onebot_ws_from_env = lambda item: False
     service._next_free_webui_port = lambda: 6200
@@ -177,8 +188,13 @@ async def test_switch_account_to_existing_snowluma_runtime_binds_and_restarts() 
 
 
 @pytest.mark.asyncio
-async def test_switch_account_to_snowluma_applies_docker_image() -> None:
-    runtime = {"id": "sl-rt-existing", "data_dir": "/tmp/shared", "webui_port": 6200}
+async def test_switch_account_to_existing_snowluma_ignores_payload_docker_image() -> None:
+    runtime = {
+        "id": "sl-rt-existing",
+        "data_dir": "/tmp/shared",
+        "webui_port": 6200,
+        "snowluma_docker_image": "pallas/snowluma-auto-login:v1.12.8",
+    }
     service, account = make_service(runtime)
 
     await service.switch_account_runtime(
@@ -187,6 +203,23 @@ async def test_switch_account_to_snowluma_applies_docker_image() -> None:
             "protocol_backend": SNOWLUMA_PROTOCOL_BACKEND,
             "runtime_mode": "existing",
             "runtime_id": runtime["id"],
+            "snowluma_docker_image": "pallas/snowluma-auto-login:v1.12.9",
+        },
+    )
+
+    assert account["snowluma_docker_image"] == "pallas/snowluma-auto-login:v1.12.8"
+    assert service._sl_runtime_registry.runtime["snowluma_docker_image"] == ("pallas/snowluma-auto-login:v1.12.8")
+
+
+@pytest.mark.asyncio
+async def test_switch_account_to_new_snowluma_applies_docker_image() -> None:
+    service, account = make_service()
+
+    await service.switch_account_runtime(
+        "10001",
+        {
+            "protocol_backend": SNOWLUMA_PROTOCOL_BACKEND,
+            "runtime_mode": "new",
             "snowluma_docker_image": "pallas/snowluma-auto-login:v1.12.9",
         },
     )
@@ -206,6 +239,22 @@ async def test_switch_account_to_new_snowluma_runtime_creates_and_binds() -> Non
     assert result["runtime"]["id"] == account["snowluma_runtime_id"]
     assert result["runtime"]["member_account_ids"] == ["10001"]
     assert account["napcat_account_data_dir"] == "/tmp/napcat-data"
+
+
+@pytest.mark.asyncio
+async def test_switch_account_to_new_snowluma_runtime_syncs_docker_host_ports() -> None:
+    service, account = make_service(allocate_ports=True)
+
+    result = await service.switch_account_runtime(
+        "10001", {"protocol_backend": SNOWLUMA_PROTOCOL_BACKEND, "runtime_mode": "new"}
+    )
+
+    runtime = service._sl_runtime_registry.runtime
+    assert runtime is not None
+    assert runtime["snowluma_docker_host_onebot_http"] == 17100
+    assert runtime["snowluma_docker_host_onebot_ws"] == 17101
+    assert account["snowluma_docker_host_onebot_http"] == 17100
+    assert result["runtime"]["snowluma_docker_host_onebot_http"] == 17100
 
 
 @pytest.mark.asyncio

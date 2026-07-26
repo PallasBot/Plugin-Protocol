@@ -436,21 +436,30 @@ def build_snowluma_docker_run_argv_for_runtime(
     in_webui = _internal_webui_port(config)
     in_http = _internal_onebot_http_port(config)
     in_ws = _internal_onebot_ws_port(config)
-    try:
-        host_webui = int(str(runtime.get("webui_port", "")).strip())
-    except (TypeError, ValueError):
-        host_webui = 0
-    if not (1 <= host_webui <= 65535):
+
+    def _host_port(*sources: Any) -> int:
+        for raw in sources:
+            try:
+                value = int(str(raw).strip())
+            except (TypeError, ValueError):
+                continue
+            if 1 <= value <= 65535:
+                return value
+        return 0
+
+    host_webui = _host_port(runtime.get("webui_port"), (account or {}).get("webui_port"))
+    if not host_webui:
         host_webui = in_webui
-    try:
-        host_http = int(str(runtime.get("snowluma_docker_host_onebot_http", "")).strip())
-    except (TypeError, ValueError):
-        host_http = 0
-    try:
-        host_ws = int(str(runtime.get("snowluma_docker_host_onebot_ws", "")).strip())
-    except (TypeError, ValueError):
-        host_ws = 0
-    if not (1 <= host_http <= 65535) or not (1 <= host_ws <= 65535):
+    # Runtime 注册表可能尚未 sync；账号上 apply_defaults 已分配的端口作为回退。
+    host_http = _host_port(
+        runtime.get("snowluma_docker_host_onebot_http"),
+        (account or {}).get("snowluma_docker_host_onebot_http"),
+    )
+    host_ws = _host_port(
+        runtime.get("snowluma_docker_host_onebot_ws"),
+        (account or {}).get("snowluma_docker_host_onebot_ws"),
+    )
+    if not host_http or not host_ws:
         msg = "SnowLuma Docker 需要有效的 snowluma_docker_host_onebot_http / snowluma_docker_host_onebot_ws"
         raise ValueError(msg)
 

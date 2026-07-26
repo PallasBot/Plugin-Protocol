@@ -1752,6 +1752,8 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         self._merge_onebot_ws_from_env(account)
         be.prepare_dirs(account)
         be.sync_all_configs(account, self._resolve_qq)
+        if new_backend == SNOWLUMA_PROTOCOL_BACKEND:
+            self.sync_runtime_ports_from_account(account)
         self._refresh_linux_docker_run_argv(account)
         account["updated_at"] = datetime.now(UTC).isoformat()
         self._save_accounts()
@@ -1886,7 +1888,16 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
                     preserve_napcat_data=True,
                 )
                 self.bind_account_to_snowluma_runtime(account, runtime)
-                self._apply_snowluma_docker_image_from_payload(account, payload, runtime)
+                runtime_mode = str(payload.get("runtime_mode", "")).strip().lower()
+                if runtime_mode == "new":
+                    self._apply_snowluma_docker_image_from_payload(account, payload, runtime)
+                else:
+                    # 挂载已有：镜像以 Runtime 为准，忽略表单选择，避免改写共享容器。
+                    rt_image = str(runtime.get("snowluma_docker_image") or "").strip()
+                    if rt_image:
+                        account["snowluma_docker_image"] = rt_image
+                    else:
+                        account.pop("snowluma_docker_image", None)
             else:
                 self._prepare_account_for_napcat_switch(account, payload)
 
@@ -1895,6 +1906,13 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
             self._merge_onebot_ws_from_env(account)
             backend.prepare_dirs(account)
             backend.sync_all_configs(account, self._resolve_qq)
+            if runtime:
+                # apply_defaults 写在账号上；docker argv 从 Runtime 读端口，须先回写注册表。
+                self.sync_runtime_ports_from_account(account)
+                refreshed = self.resolve_snowluma_runtime(account)
+                if refreshed:
+                    runtime.clear()
+                    runtime.update(refreshed)
             self._refresh_linux_docker_run_argv(account)
             account["updated_at"] = datetime.now(UTC).isoformat()
             self._save_accounts()
@@ -2319,6 +2337,7 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
             be.sync_webui(account, self._resolve_qq)
             self._save_accounts()
         be.apply_defaults(account, self._resolve_qq)
+        self.sync_runtime_ports_from_account(account)
         sl_runtime = self.resolve_snowluma_runtime(account)
         self.annotate_account_snowluma_multi_qq(account)
         member_uins = list(account.get("snowluma_member_uins") or [])

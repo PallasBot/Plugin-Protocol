@@ -40,6 +40,7 @@ for name, file in (
 snowluma_docker = load_module(f"{_PKG}.snowluma_docker", "snowluma_docker.py")
 append_snowluma_docker_resource_limits = snowluma_docker.append_snowluma_docker_resource_limits
 build_snowluma_docker_run_argv = snowluma_docker.build_snowluma_docker_run_argv
+build_snowluma_docker_run_argv_for_runtime = snowluma_docker.build_snowluma_docker_run_argv_for_runtime
 snowluma_docker_program_dir_marker = snowluma_docker.snowluma_docker_program_dir_marker
 snowluma_dockerfile = snowluma_docker.snowluma_dockerfile
 clear_snowluma_login_state = snowluma_docker.clear_snowluma_login_state
@@ -56,6 +57,45 @@ def test_append_snowluma_docker_resource_limits() -> None:
     assert "1g" in argv
     assert "--memory-swap" in argv
     assert "1536m" in argv
+
+
+def test_build_snowluma_docker_run_argv_for_runtime_falls_back_to_account_ports(
+    tmp_path: Path,
+) -> None:
+    cfg = SimpleNamespace(
+        pallas_protocol_snowluma_docker_image="motricseven7/snowluma:latest",
+        pallas_protocol_snowluma_docker_internal_webui_port=5099,
+        pallas_protocol_snowluma_docker_internal_onebot_http_port=3000,
+        pallas_protocol_snowluma_docker_internal_onebot_ws_port=3001,
+        pallas_protocol_snowluma_docker_shm_size="1g",
+        pallas_protocol_snowluma_docker_memory_limit="",
+        pallas_protocol_snowluma_docker_memory_swap="",
+        pallas_protocol_snowluma_docker_vnc_passwd="",
+        pallas_protocol_snowluma_docker_host_novnc_port=0,
+        pallas_protocol_snowluma_docker_host_vnc_port=0,
+        pallas_protocol_snowluma_docker_internal_novnc_port=6081,
+        pallas_protocol_snowluma_docker_internal_vnc_port=5900,
+    )
+    data_dir = tmp_path / "runtime"
+    data_dir.mkdir()
+    runtime = {
+        "id": "sl-rt-1",
+        "data_dir": str(data_dir),
+        "webui_port": 6100,
+    }
+    account = {
+        "id": "123",
+        "snowluma_docker_host_onebot_http": 17100,
+        "snowluma_docker_host_onebot_ws": 17101,
+    }
+    argv = build_snowluma_docker_run_argv_for_runtime(
+        runtime,
+        cfg,
+        account_id_label="123",
+        account=account,
+    )
+    assert "17100:3000" in argv
+    assert "17101:3001" in argv
 
 
 def test_build_snowluma_docker_run_argv_includes_memory_limits() -> None:
