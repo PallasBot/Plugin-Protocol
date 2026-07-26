@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+## [4.0.45] - 2026-07-26
+
+- feat(config): WebUI 配置字段增加 ui_group 分组与 ui_order 排序
+
+
 ## [4.0.44] - 2026-07-26
 
 - feat(snowluma): 单容器多 QQ：挂载 `qq-homes` + `SNOWLUMA_EXTRA_QQ_HOMES`；按 UIN/PID 选登录窗与二维码缓存，避免串扰；共享 Runtime 二次启动时按需拉起对应 QQ 进程

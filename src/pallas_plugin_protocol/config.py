@@ -14,6 +14,10 @@ from .runtime.installer import (
 )
 
 
+def _ui(group: str, order: int, **extra: object) -> dict[str, object]:
+    return {"ui_group": group, "ui_order": order, **extra}
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -23,6 +27,7 @@ class Config(BaseModel):
             "是否启用 QQ 协议端管理功能",
             "开启后可在控制台管理 NapCat、SnowLuma 等登录实例",
         ),
+        json_schema_extra=_ui("开关与挂载", 10),
     )
     pallas_protocol_webui_enabled: bool = Field(
         default=True,
@@ -30,6 +35,7 @@ class Config(BaseModel):
             "兼容旧协议网页书签",
             "保留此旧配置以兼容既有部署；协议管理页面统一由 Bot 控制台 /pallas/protocol 提供",
         ),
+        json_schema_extra=_ui("开关与挂载", 20),
     )
     pallas_protocol_web_implementation: str = Field(
         default="",
@@ -37,6 +43,7 @@ class Config(BaseModel):
             "使用哪一套协议端网页实现",
             "一般留空即可；高级用户可填实现标识，对应 /protocol/标识 路径",
         ),
+        json_schema_extra=_ui("开关与挂载", 30),
     )
     pallas_protocol_webui_path: str = Field(
         default="",
@@ -44,6 +51,7 @@ class Config(BaseModel):
             "完全自定义协议网页的挂载路径",
             "非空时覆盖默认路径；不懂请留空",
         ),
+        json_schema_extra=_ui("开关与挂载", 40),
     )
 
     pallas_protocol_bind_host: str = Field(
@@ -52,6 +60,7 @@ class Config(BaseModel):
             "协议相关本地服务监听哪个网卡",
             "仅本机访问用 127.0.0.1；需局域网访问可改为 0.0.0.0",
         ),
+        json_schema_extra=_ui("开关与挂载", 50),
     )
     pallas_protocol_default_command: str = Field(
         default="node",
@@ -59,6 +68,7 @@ class Config(BaseModel):
             "启动 NapCat 时使用的命令",
             "一般为 node，表示用 Node.js 运行",
         ),
+        json_schema_extra=_ui("NapCat 程序", 10),
     )
     pallas_protocol_default_args: list[str] = Field(
         default_factory=lambda: ["napcat.mjs"],
@@ -66,6 +76,7 @@ class Config(BaseModel):
             "启动命令后面跟的参数",
             "JSON 数组，默认包含 napcat.mjs 入口脚本",
         ),
+        json_schema_extra=_ui("NapCat 程序", 20),
     )
     pallas_protocol_program_dir: str = Field(
         default="",
@@ -73,6 +84,7 @@ class Config(BaseModel):
             "NapCat 程序解压后的根目录",
             "留空时程序会尝试自动下载或使用内置路径",
         ),
+        json_schema_extra=_ui("NapCat 程序", 30),
     )
     pallas_protocol_snowluma_program_dir: str = Field(
         default="",
@@ -80,6 +92,7 @@ class Config(BaseModel):
             "SnowLuma 程序根目录",
             "留空则使用资源包或每个账号单独配置的目录",
         ),
+        json_schema_extra=_ui("SnowLuma 程序", 10),
     )
     pallas_protocol_snowluma_github_repo: str = Field(
         default="SnowLuma/SnowLuma",
@@ -87,6 +100,7 @@ class Config(BaseModel):
             "从网上下载 SnowLuma 时使用的 GitHub 仓库",
             "格式：所有者/仓库名",
         ),
+        json_schema_extra=_ui("SnowLuma 程序", 20),
     )
     pallas_protocol_snowluma_release_tag: str = Field(
         default="",
@@ -94,6 +108,7 @@ class Config(BaseModel):
             "要下载的 SnowLuma 版本号",
             "留空表示最新版",
         ),
+        json_schema_extra=_ui("SnowLuma 程序", 30),
     )
     pallas_protocol_snowluma_release_asset: str = Field(
         default="",
@@ -101,6 +116,7 @@ class Config(BaseModel):
             "发布包文件名或直链",
             "留空则按当前系统自动选默认包",
         ),
+        json_schema_extra=_ui("SnowLuma 程序", 40),
     )
     pallas_protocol_default_working_dir: str = Field(
         default="",
@@ -108,6 +124,7 @@ class Config(BaseModel):
             "启动子进程时的工作目录",
             "留空使用每个实例数据目录下的默认位置",
         ),
+        json_schema_extra=_ui("NapCat 程序", 40),
     )
     pallas_protocol_shell_template_dir: str = Field(
         default="",
@@ -115,6 +132,7 @@ class Config(BaseModel):
             "自定义启动脚本模板所在文件夹",
             "留空使用插件自带模板",
         ),
+        json_schema_extra=_ui("NapCat 程序", 50),
     )
     pallas_protocol_instances_root: str = Field(
         default="",
@@ -122,6 +140,7 @@ class Config(BaseModel):
             "所有 QQ 协议账号数据放在哪个总目录",
             "留空为 data/pallas_protocol/instances/",
         ),
+        json_schema_extra=_ui("NapCat 程序", 60),
     )
     pallas_protocol_max_log_lines: int = Field(
         default=500,
@@ -131,6 +150,7 @@ class Config(BaseModel):
             "协议端日志一次最多显示多少行",
             "填 100～5000 的整数",
         ),
+        json_schema_extra=_ui("开关与挂载", 60),
     )
     pallas_protocol_webui_port_min: int = Field(
         default=6099,
@@ -140,6 +160,7 @@ class Config(BaseModel):
             "自动分配 NapCat 网页端口时的最小值",
             "与下一项一起构成可用端口范围",
         ),
+        json_schema_extra=_ui("NapCat 程序", 70),
     )
     pallas_protocol_webui_port_max: int = Field(
         default=7999,
@@ -149,6 +170,7 @@ class Config(BaseModel):
             "自动分配 NapCat 网页端口时的最大值",
             "需大于上一项",
         ),
+        json_schema_extra=_ui("NapCat 程序", 80),
     )
     pallas_protocol_github_token: str = Field(
         default="",
@@ -156,6 +178,7 @@ class Config(BaseModel):
             "访问 GitHub 下载发布包用的令牌",
             "可选；填写后可减少限流、支持私有仓库",
         ),
+        json_schema_extra=_ui("NapCat 程序", 90),
     )
     pallas_protocol_github_repo: str = Field(
         default_factory=default_release_repo_for_platform,
@@ -163,6 +186,7 @@ class Config(BaseModel):
             "下载 NapCat 时使用的 GitHub 仓库",
             "留空则按操作系统选默认仓库",
         ),
+        json_schema_extra=_ui("NapCat 程序", 100),
     )
     pallas_protocol_release_tag: str = Field(
         default="",
@@ -170,6 +194,7 @@ class Config(BaseModel):
             "要下载的 NapCat 版本标签",
             "留空表示最新版",
         ),
+        json_schema_extra=_ui("NapCat 程序", 110),
     )
     pallas_protocol_release_asset: str = Field(
         default_factory=default_release_asset_for_platform,
@@ -177,6 +202,7 @@ class Config(BaseModel):
             "NapCat 发布包文件名或下载直链",
             "留空按系统选默认安装包",
         ),
+        json_schema_extra=_ui("NapCat 程序", 120),
     )
     pallas_protocol_auto_download_runtime: bool = Field(
         default=False,
@@ -184,6 +210,7 @@ class Config(BaseModel):
             "本地缺少 NapCat 时是否自动后台下载",
             "开启省事但需能访问 GitHub；关闭则需自行放置程序",
         ),
+        json_schema_extra=_ui("NapCat 程序", 130),
     )
     pallas_protocol_onebot_client_name: str = Field(
         default="",
@@ -191,6 +218,7 @@ class Config(BaseModel):
             "协议端连接牛牛时使用的名称",
             "留空则用环境变量或默认名 pallas",
         ),
+        json_schema_extra=_ui("OneBot 连接", 10),
     )
     pallas_protocol_onebot_ws_url: str = Field(
         default="",
@@ -198,6 +226,7 @@ class Config(BaseModel):
             "牛牛接收 QQ 消息的完整连接地址",
             "填 ws:// 开头的完整地址后，不再使用下面的主机、端口、路径三项",
         ),
+        json_schema_extra=_ui("OneBot 连接", 20),
     )
     pallas_protocol_onebot_ws_host: str = Field(
         default="",
@@ -205,6 +234,7 @@ class Config(BaseModel):
             "未填完整地址时，牛牛监听的主机名或 IP",
             "例如 127.0.0.1",
         ),
+        json_schema_extra=_ui("OneBot 连接", 30),
     )
     pallas_protocol_onebot_ws_port: int = Field(
         default=0,
@@ -214,6 +244,7 @@ class Config(BaseModel):
             "未填完整地址时，牛牛监听的端口",
             "填 0 表示使用环境变量或牛牛默认监听端口",
         ),
+        json_schema_extra=_ui("OneBot 连接", 40),
     )
     pallas_protocol_onebot_ws_path: str = Field(
         default="",
@@ -221,6 +252,7 @@ class Config(BaseModel):
             "连接地址里的路径部分",
             "留空为 /onebot/v11/ws",
         ),
+        json_schema_extra=_ui("OneBot 连接", 50),
     )
     pallas_protocol_linux_use_docker: bool = Field(
         default=False,
@@ -228,6 +260,7 @@ class Config(BaseModel):
             "在 Linux 上是否用 Docker 容器跑 NapCat",
             "熟悉 Docker 可开启；否则用本机直接运行",
         ),
+        json_schema_extra=_ui("Linux / Xvfb", 10),
     )
     pallas_protocol_snowluma_linux_use_docker: bool = Field(
         default=False,
@@ -235,6 +268,7 @@ class Config(BaseModel):
             "在 Linux 上是否用 Docker 跑 SnowLuma",
             "可与 NapCat 分开设置",
         ),
+        json_schema_extra=_ui("SnowLuma Docker", 10),
     )
     pallas_protocol_linux_use_xvfb: bool = Field(
         default=True,
@@ -242,6 +276,7 @@ class Config(BaseModel):
             "Linux 不用 Docker 时是否用虚拟显示器",
             "无图形界面服务器上一般需开启",
         ),
+        json_schema_extra=_ui("Linux / Xvfb", 20),
     )
     pallas_protocol_linux_xvfb_command: str = Field(
         default="xvfb-run",
@@ -249,6 +284,7 @@ class Config(BaseModel):
             "虚拟显示器封装命令",
             "默认 xvfb-run，一般无需修改",
         ),
+        json_schema_extra=_ui("Linux / Xvfb", 30),
     )
     pallas_protocol_linux_xvfb_args: list[str] = Field(
         default_factory=lambda: [
@@ -259,6 +295,7 @@ class Config(BaseModel):
             "传给虚拟显示器命令的参数",
             "JSON 数组，默认分辨率 1280x720",
         ),
+        json_schema_extra=_ui("Linux / Xvfb", 40),
     )
     pallas_protocol_linux_appimage_args: list[str] = Field(
         default_factory=lambda: ["--appimage-extract-and-run"],
@@ -266,6 +303,7 @@ class Config(BaseModel):
             "运行 AppImage 安装包时的额外参数",
             "默认会先解压再运行",
         ),
+        json_schema_extra=_ui("Linux / Xvfb", 50),
     )
     pallas_protocol_docker_image: str = Field(
         default="mlikiowa/napcat-docker:latest",
@@ -273,6 +311,7 @@ class Config(BaseModel):
             "NapCat 使用的 Docker 镜像名称",
             "例如 mlikiowa/napcat-docker:latest",
         ),
+        json_schema_extra=_ui("NapCat Docker", 10),
     )
     pallas_protocol_snowluma_docker_image: str = Field(
         default="motricseven7/snowluma:latest",
@@ -280,6 +319,7 @@ class Config(BaseModel):
             "SnowLuma 上游 Docker 基础镜像",
             "例如 motricseven7/snowluma:v1.12.9；派生镜像会打同名 tag",
         ),
+        json_schema_extra=_ui("SnowLuma Docker", 20),
     )
     pallas_protocol_docker_onebot_host: str = Field(
         default="",
@@ -287,6 +327,7 @@ class Config(BaseModel):
             "容器里访问宿主机上牛牛用的地址",
             "留空或填 auto 由程序按网络模式自动选择；填 127.0.0.1 表示本机",
         ),
+        json_schema_extra=_ui("NapCat Docker", 20),
     )
     pallas_protocol_docker_internal_webui_port: int = Field(
         default=6099,
@@ -296,6 +337,7 @@ class Config(BaseModel):
             "容器内部 NapCat 网页控制台端口",
             "需与 Docker 端口映射一致",
         ),
+        json_schema_extra=_ui("NapCat Docker", 30),
     )
     pallas_protocol_follow_bot_lifecycle: bool = Field(
         default=True,
@@ -303,6 +345,7 @@ class Config(BaseModel):
             "牛牛启动/关闭时是否自动启停对应 QQ 实例",
             "开启便于无人值守；手动管理时可关闭",
         ),
+        json_schema_extra=_ui("生命周期", 10),
     )
     pallas_protocol_restart_max_concurrency: int = Field(
         default=2,
@@ -312,6 +355,7 @@ class Config(BaseModel):
             "批量重启/启停时的最大并发数",
             "parallel 模式生效；rolling 模式用于上限保护",
         ),
+        json_schema_extra=_ui("生命周期", 20),
     )
     pallas_protocol_restart_stagger_s: float = Field(
         default=3.0,
@@ -321,6 +365,7 @@ class Config(BaseModel):
             "rolling 批量启动/重启时，相邻实例间隔秒数",
             "降低 Docker 与 CPU 峰值；0 表示无间隔",
         ),
+        json_schema_extra=_ui("生命周期", 30),
     )
     pallas_protocol_docker_network_mode: str = Field(
         default="bridge",
@@ -328,6 +373,7 @@ class Config(BaseModel):
             "Docker 网络模式",
             "bridge 为桥接（常用）；host 表示与宿主机共用网络",
         ),
+        json_schema_extra=_ui("NapCat Docker", 40),
     )
     pallas_protocol_docker_uid: int | None = Field(
         default=None,
@@ -335,6 +381,7 @@ class Config(BaseModel):
             "容器内运行用户的数字 ID（UID）",
             "留空由程序自动选择，用于避免文件权限问题",
         ),
+        json_schema_extra=_ui("NapCat Docker", 50),
     )
     pallas_protocol_docker_gid: int | None = Field(
         default=None,
@@ -342,6 +389,7 @@ class Config(BaseModel):
             "容器内用户组的数字 ID（GID）",
             "留空由程序自动选择",
         ),
+        json_schema_extra=_ui("NapCat Docker", 60),
     )
     pallas_protocol_docker_memory_limit: str = Field(
         default="",
@@ -349,6 +397,7 @@ class Config(BaseModel):
             "NapCat Docker 容器内存上限",
             "例如 768m；留空表示不限制",
         ),
+        json_schema_extra=_ui("NapCat Docker", 70),
     )
     pallas_protocol_docker_memory_swap: str = Field(
         default="",
@@ -356,6 +405,7 @@ class Config(BaseModel):
             "NapCat Docker 容器 memory+swap 总量",
             "例如 1g；需不小于内存上限；留空表示不单独设置",
         ),
+        json_schema_extra=_ui("NapCat Docker", 80),
     )
     pallas_protocol_docker_shm_size: str = Field(
         default="",
@@ -363,6 +413,7 @@ class Config(BaseModel):
             "NapCat Docker 容器 /dev/shm 大小",
             "Electron 建议 256m 及以上；留空使用 Docker 默认 64m",
         ),
+        json_schema_extra=_ui("NapCat Docker", 90),
     )
     pallas_protocol_snowluma_docker_internal_webui_port: int = Field(
         default=5099,
@@ -372,6 +423,7 @@ class Config(BaseModel):
             "容器内 SnowLuma 网页控制台端口",
             "映射到宿主机时需与此一致",
         ),
+        json_schema_extra=_ui("SnowLuma Docker", 30),
     )
     pallas_protocol_snowluma_docker_internal_onebot_http_port: int = Field(
         default=3000,
@@ -381,6 +433,7 @@ class Config(BaseModel):
             "容器内 HTTP 方式连接牛牛的端口",
             "与下一项成对使用",
         ),
+        json_schema_extra=_ui("SnowLuma Docker", 40),
     )
     pallas_protocol_snowluma_docker_internal_onebot_ws_port: int = Field(
         default=3001,
@@ -390,6 +443,7 @@ class Config(BaseModel):
             "容器内 WebSocket 方式连接牛牛的端口",
             "通常比 HTTP 端口大 1",
         ),
+        json_schema_extra=_ui("SnowLuma Docker", 50),
     )
     pallas_protocol_snowluma_docker_shm_size: str = Field(
         default="1g",
@@ -397,6 +451,7 @@ class Config(BaseModel):
             "容器共享内存大小",
             "例如 1g；适当增大可减少浏览器组件崩溃",
         ),
+        json_schema_extra=_ui("SnowLuma Docker", 60),
     )
     pallas_protocol_snowluma_docker_memory_limit: str = Field(
         default="1g",
@@ -404,6 +459,7 @@ class Config(BaseModel):
             "SnowLuma Docker 容器内存上限",
             "多开时建议设置，例如 1g；留空表示不限制",
         ),
+        json_schema_extra=_ui("SnowLuma Docker", 70),
     )
     pallas_protocol_snowluma_docker_memory_swap: str = Field(
         default="1536m",
@@ -411,6 +467,7 @@ class Config(BaseModel):
             "SnowLuma Docker 容器 memory+swap 总量",
             "需不小于内存上限；留空表示不单独设置",
         ),
+        json_schema_extra=_ui("SnowLuma Docker", 80),
     )
     pallas_protocol_snowluma_docker_vnc_passwd: str = Field(
         default="",
@@ -418,6 +475,7 @@ class Config(BaseModel):
             "远程桌面（VNC）登录密码",
             "留空则使用镜像默认策略",
         ),
+        json_schema_extra=_ui("SnowLuma Docker", 90),
     )
     pallas_protocol_snowluma_docker_host_novnc_port: int = Field(
         default=0,
@@ -427,6 +485,7 @@ class Config(BaseModel):
             "在宿主机上暴露网页版远程桌面的端口",
             "填 0 表示不映射到宿主机",
         ),
+        json_schema_extra=_ui("SnowLuma Docker", 100),
     )
     pallas_protocol_snowluma_docker_host_vnc_port: int = Field(
         default=0,
@@ -436,6 +495,7 @@ class Config(BaseModel):
             "在宿主机上暴露原生 VNC 的端口",
             "填 0 表示不映射",
         ),
+        json_schema_extra=_ui("SnowLuma Docker", 110),
     )
     pallas_protocol_snowluma_docker_internal_novnc_port: int = Field(
         default=6081,
@@ -445,6 +505,7 @@ class Config(BaseModel):
             "容器内网页版远程桌面端口",
             "与宿主机映射端口配合使用",
         ),
+        json_schema_extra=_ui("SnowLuma Docker", 120),
     )
     pallas_protocol_snowluma_docker_internal_vnc_port: int = Field(
         default=5900,
@@ -454,6 +515,7 @@ class Config(BaseModel):
             "容器内 VNC 服务端口",
             "默认 5900",
         ),
+        json_schema_extra=_ui("SnowLuma Docker", 130),
     )
     pallas_protocol_snowluma_docker_auto_bind_port_lo: int = Field(
         default=17100,
@@ -463,6 +525,7 @@ class Config(BaseModel):
             "多开 SnowLuma 时自动分配牛牛连接端口的范围下限",
             "程序在范围内找空闲端口",
         ),
+        json_schema_extra=_ui("SnowLuma Docker", 140),
     )
     pallas_protocol_snowluma_docker_auto_bind_port_hi: int = Field(
         default=19998,
@@ -472,6 +535,7 @@ class Config(BaseModel):
             "自动分配牛牛连接端口的范围上限",
             "HTTP 与 WS 会占用相邻两个端口",
         ),
+        json_schema_extra=_ui("SnowLuma Docker", 150),
     )
     pallas_protocol_snowluma_docker_auto_aux_bind_lo: int = Field(
         default=23100,
@@ -481,6 +545,7 @@ class Config(BaseModel):
             "自动映射远程桌面到宿主机的端口范围下限",
             "多实例时避免端口冲突",
         ),
+        json_schema_extra=_ui("SnowLuma Docker", 160),
     )
     pallas_protocol_snowluma_docker_auto_aux_bind_hi: int = Field(
         default=29998,
@@ -490,6 +555,7 @@ class Config(BaseModel):
             "自动映射远程桌面到宿主机的端口范围上限",
             "需大于上一项",
         ),
+        json_schema_extra=_ui("SnowLuma Docker", 170),
     )
     pallas_protocol_snowluma_qr_capture_display: str = Field(
         default=":1",
@@ -497,6 +563,7 @@ class Config(BaseModel):
             "SnowLuma Docker 截屏用的 X11 DISPLAY",
             "容器内桌面默认 :1；一般无需修改",
         ),
+        json_schema_extra=_ui("SnowLuma 登录辅助", 10),
     )
     pallas_protocol_snowluma_qr_capture_initial_delay_s: float = Field(
         default=8.0,
@@ -506,6 +573,7 @@ class Config(BaseModel):
             "重启后首次尝试截屏前的等待秒数",
             "给 QQ 登录窗口弹出留时间；0 表示立即截屏",
         ),
+        json_schema_extra=_ui("SnowLuma 登录辅助", 20),
     )
     pallas_protocol_snowluma_auto_quick_login: bool = Field(
         default=True,
@@ -513,6 +581,7 @@ class Config(BaseModel):
             "SnowLuma 容器启动后自动点 QQ「一键登录」",
             "未连上时轮询登录窗并点击；关闭则仅手动刷新/重新上号时触发",
         ),
+        json_schema_extra=_ui("SnowLuma 登录辅助", 30),
     )
     pallas_protocol_snowluma_auto_quick_login_timeout_s: float = Field(
         default=90.0,
@@ -522,6 +591,7 @@ class Config(BaseModel):
             "自动一键登录轮询超时（秒）",
             "容器刚启动时 QQ 窗可能较慢；超时后停止本次尝试",
         ),
+        json_schema_extra=_ui("SnowLuma 登录辅助", 40),
     )
 
     def resolved_release_asset(self) -> str:
