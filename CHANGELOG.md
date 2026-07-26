@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+- feat(snowluma): 单容器多 QQ：挂载 `qq-homes` + `SNOWLUMA_EXTRA_QQ_HOMES`；按 UIN/PID 选登录窗与二维码缓存，避免串扰；共享 Runtime 二次启动时按需拉起对应 QQ 进程
+- feat(snowluma): 派生镜像打与上游相同的版本 tag；运行时按配置上游 tag 选用，可像 NapCat 一样固定版本
+- feat(runtime): `runtime_profile` 持久化 `snowluma_docker_image` 并同步到配置
+- feat(snowluma): 账号运行时可按账号/Runtime 选择 SnowLuma Docker 镜像（与 NapCat 账号级镜像选择对齐）
+
 ## [4.0.43] - 2026-07-25
 
 - fix(runtime): 同镜像 Docker 拉取任务单飞，避免并发 `docker pull` 互相卡住

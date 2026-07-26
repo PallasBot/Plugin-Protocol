@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -17,7 +18,9 @@ snowluma_docker_remove_force = docker_cli.docker_rm_force_async
 snowluma_docker_remove_force_sync = docker_cli.docker_rm_force_sync
 
 SNOWLUMA_DOCKER_BASE_IMAGE = "motricseven7/snowluma:latest"
-SNOWLUMA_DOCKER_IMAGE = "pallas/snowluma-auto-login:latest"
+SNOWLUMA_DOCKER_BASE_REPO = "motricseven7/snowluma"
+SNOWLUMA_DOCKER_IMAGE_REPO = "pallas/snowluma-auto-login"
+SNOWLUMA_DOCKER_IMAGE = f"{SNOWLUMA_DOCKER_IMAGE_REPO}:latest"
 
 
 def snowluma_dockerfile(base_image: str | None = None) -> str:
@@ -31,16 +34,155 @@ RUN apt-get update \\
 """
 
 
+def normalize_snowluma_version_tag(version: str) -> str:
+    """把 ``1.12.9`` / ``v1.12.9`` 规范为 ``v1.12.9``；其它原样返回。"""
+    v = str(version or "").strip()
+    if not v:
+        return ""
+    if len(v) >= 2 and v[0] in "vV" and v[1].isdigit():
+        return f"v{v[1:]}"
+    if v[0].isdigit():
+        return f"v{v}"
+    return v
+
+
+def is_derived_snowluma_image(ref: str) -> bool:
+    repo = docker_cli.docker_repository_from_ref(ref).strip().lower()
+    if not repo:
+        return False
+    return repo == SNOWLUMA_DOCKER_IMAGE_REPO.lower() or repo.endswith("/snowluma-auto-login")
+
+
+def derived_snowluma_image_ref(base_image: str | None = None) -> str:
+    """上游 ``repo:tag`` → 派生 ``pallas/snowluma-auto-login:<同 tag>``。"""
+    base = str(base_image or "").strip() or SNOWLUMA_DOCKER_BASE_IMAGE
+    if is_derived_snowluma_image(base):
+        tag = docker_cli.docker_tag_from_ref(base) or "latest"
+        return f"{SNOWLUMA_DOCKER_IMAGE_REPO}:{tag}"
+    tag = docker_cli.docker_tag_from_ref(base) or "latest"
+    return f"{SNOWLUMA_DOCKER_IMAGE_REPO}:{tag}"
+
+
+def coerce_snowluma_run_image(ref: str | None = None) -> str:
+    """上游或派生引用 → 实际 ``docker run`` 用的派生镜像。"""
+    raw = str(ref or "").strip()
+    if not raw:
+        return SNOWLUMA_DOCKER_IMAGE
+    if is_derived_snowluma_image(raw):
+        return raw
+    return derived_snowluma_image_ref(raw)
+
+
+def resolve_snowluma_upstream_base(ref: str | None = None) -> str:
+    """派生或上游引用 → 重建用的上游基础镜像。"""
+    raw = str(ref or "").strip() or SNOWLUMA_DOCKER_BASE_IMAGE
+    if is_derived_snowluma_image(raw):
+        tag = docker_cli.docker_tag_from_ref(raw) or "latest"
+        return f"{SNOWLUMA_DOCKER_BASE_REPO}:{tag}"
+    return raw
+
+
+def resolve_snowluma_base_image(config: Any | None = None) -> str:
+    raw = ""
+    if config is not None:
+        raw = str(getattr(config, "pallas_protocol_snowluma_docker_image", "") or "").strip()
+    return raw or SNOWLUMA_DOCKER_BASE_IMAGE
+
+
+def resolve_snowluma_run_image(
+    config: Any | None = None,
+    *,
+    account: dict | None = None,
+    runtime: dict | None = None,
+    override: str | None = None,
+) -> str:
+    """账号 / Runtime / 全局配置 → 实际运行的派生镜像。"""
+    for raw in (
+        str(override or "").strip(),
+        str((runtime or {}).get("snowluma_docker_image", "") or "").strip(),
+        str((account or {}).get("snowluma_docker_image", "") or "").strip(),
+        resolve_snowluma_base_image(config),
+    ):
+        if raw:
+            return coerce_snowluma_run_image(raw)
+    return SNOWLUMA_DOCKER_IMAGE
+
+
+def resolve_snowluma_version_tag_from_image(image: str) -> str:
+    """从镜像内 ``/app/snowluma/package.json`` 读取版本，返回 ``vX.Y.Z``；失败为空串。"""
+    ref = str(image or "").strip()
+    if not ref:
+        return ""
+    try:
+        proc = subprocess.run(
+            ["docker", "run", "--rm", "--entrypoint", "cat", ref, "/app/snowluma/package.json"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if proc.returncode != 0:
+        return ""
+    text = (proc.stdout or "").strip()
+    if not text:
+        return ""
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    return normalize_snowluma_version_tag(str(data.get("version", "") or ""))
+
+
+def snowluma_rebuild_tags(base_image: str | None = None) -> list[str]:
+    """重建派生镜像时要打的 tag 列表（同上游 tag；``:latest`` 额外打解析出的版本 tag）。"""
+    upstream = resolve_snowluma_upstream_base(base_image)
+    primary = derived_snowluma_image_ref(upstream)
+    tags = [primary]
+    tag = docker_cli.docker_tag_from_ref(upstream) or "latest"
+    if tag == "latest":
+        ver = resolve_snowluma_version_tag_from_image(upstream)
+        if ver:
+            ver_ref = f"{SNOWLUMA_DOCKER_IMAGE_REPO}:{ver}"
+            if ver_ref not in tags:
+                tags.append(ver_ref)
+    return tags
+
+
+def snowluma_docker_build_argv(tags: list[str]) -> list[str]:
+    argv = ["docker", "build"]
+    for tag in tags:
+        t = str(tag or "").strip()
+        if t:
+            argv.extend(["--tag", t])
+    argv.append("-")
+    return argv
+
+
 __all__ = [
     "SNOWLUMA_DOCKER_BASE_IMAGE",
+    "SNOWLUMA_DOCKER_BASE_REPO",
     "SNOWLUMA_DOCKER_IMAGE",
+    "SNOWLUMA_DOCKER_IMAGE_REPO",
     "append_snowluma_docker_resource_limits",
     "build_snowluma_docker_run_argv",
     "build_snowluma_docker_run_argv_for_runtime",
     "clear_snowluma_login_state",
     "clear_snowluma_login_state_for_uin",
+    "coerce_snowluma_run_image",
+    "derived_snowluma_image_ref",
     "ensure_snowluma_docker_image",
+    "is_derived_snowluma_image",
+    "normalize_snowluma_version_tag",
     "rebuild_snowluma_docker_image",
+    "resolve_snowluma_base_image",
+    "resolve_snowluma_run_image",
+    "resolve_snowluma_upstream_base",
+    "resolve_snowluma_version_tag_from_image",
+    "snowluma_docker_build_argv",
     "snowluma_docker_container_name",
     "snowluma_docker_container_name_for_runtime",
     "snowluma_docker_container_running",
@@ -55,16 +197,20 @@ __all__ = [
     "snowluma_docker_volume_paths",
     "snowluma_docker_volume_paths_from_data_dir",
     "snowluma_dockerfile",
+    "snowluma_rebuild_tags",
 ]
 
 
 def rebuild_snowluma_docker_image(base_image: str | None = None) -> tuple[bool, str]:
-    """强制重建含 xdotool 等依赖的本地派生镜像（FROM 上游 SnowLuma）。"""
-    base = str(base_image or "").strip() or SNOWLUMA_DOCKER_BASE_IMAGE
+    """强制重建含 xdotool 等依赖的本地派生镜像（FROM 上游 SnowLuma；同打版本 tag）。"""
+    upstream = resolve_snowluma_upstream_base(base_image)
+    tags = snowluma_rebuild_tags(upstream)
+    if not tags:
+        tags = [SNOWLUMA_DOCKER_IMAGE]
     try:
         build = subprocess.run(
-            ["docker", "build", "--tag", SNOWLUMA_DOCKER_IMAGE, "-"],
-            input=snowluma_dockerfile(base),
+            snowluma_docker_build_argv(tags),
+            input=snowluma_dockerfile(upstream),
             text=True,
             capture_output=True,
             timeout=600,
@@ -73,8 +219,9 @@ def rebuild_snowluma_docker_image(base_image: str | None = None) -> tuple[bool, 
     except (OSError, subprocess.TimeoutExpired) as err:
         return False, f"构建 SnowLuma Docker 镜像失败：{err}"
     output = (build.stdout or build.stderr or "").strip()
+    tagged = ", ".join(tags)
     if build.returncode == 0:
-        return True, output[-2000:] if output else f"已重建 {SNOWLUMA_DOCKER_IMAGE}（FROM {base}）"
+        return True, output[-2000:] if output else f"已重建 {tagged}（FROM {upstream}）"
     return False, f"构建 SnowLuma Docker 镜像失败：{output[-1200:]}"
 
 
@@ -84,10 +231,12 @@ def ensure_snowluma_docker_image(
     force: bool = False,
 ) -> tuple[bool, str]:
     """在首次使用前构建含 xdotool 的本地 SnowLuma 镜像；force=True 时强制重建。"""
+    raw = str(base_image or "").strip() or SNOWLUMA_DOCKER_BASE_IMAGE
+    derived = coerce_snowluma_run_image(raw)
     if not force:
         try:
             inspect = subprocess.run(
-                ["docker", "image", "inspect", SNOWLUMA_DOCKER_IMAGE],
+                ["docker", "image", "inspect", derived],
                 capture_output=True,
                 timeout=30,
                 check=False,
@@ -96,7 +245,7 @@ def ensure_snowluma_docker_image(
             return False, f"检查 SnowLuma Docker 镜像失败：{err}"
         if inspect.returncode == 0:
             return True, ""
-    return rebuild_snowluma_docker_image(base_image)
+    return rebuild_snowluma_docker_image(raw)
 
 
 def snowluma_docker_container_name_for_runtime(runtime: dict) -> str:
@@ -223,8 +372,15 @@ def append_snowluma_docker_resource_limits(argv: list[str], config: Any) -> None
         argv.extend(["--memory-swap", swap])
 
 
-def build_snowluma_docker_run_argv(account: dict, config: Any, resolve_qq) -> list[str]:
-    _ = str(resolve_qq(account) or "").strip()
+def build_snowluma_docker_run_argv(
+    account: dict,
+    config: Any,
+    resolve_qq,
+    *,
+    member_uins: list[str] | None = None,
+    primary_uin: str | None = None,
+) -> list[str]:
+    qq = str(resolve_qq(account) or "").strip()
     rid = str(account.get("snowluma_runtime_id") or "").strip()
     legacy = str(account.get("snowluma_runtime_legacy_container_account_id") or "").strip()
     runtime_stub: dict[str, Any] = {
@@ -241,10 +397,23 @@ def build_snowluma_docker_run_argv(account: dict, config: Any, resolve_qq) -> li
     elif not rid:
         # 无 Runtime 注册表时的旧 1:1 容器名
         runtime_stub["legacy_container_account_id"] = str(account.get("id", "x"))
+    uins = member_uins
+    if uins is None:
+        raw = account.get("snowluma_member_uins")
+        if isinstance(raw, (list, tuple)):
+            uins = [str(x) for x in raw]
+        elif qq.isdigit():
+            uins = [qq]
+    primary = primary_uin
+    if primary is None:
+        primary = str(account.get("snowluma_primary_uin") or "").strip() or (qq if qq.isdigit() else None)
     return build_snowluma_docker_run_argv_for_runtime(
         runtime_stub,
         config,
         account_id_label=str(account.get("id", "x")),
+        account=account,
+        member_uins=uins,
+        primary_uin=primary,
     )
 
 
@@ -253,8 +422,17 @@ def build_snowluma_docker_run_argv_for_runtime(
     config: Any,
     *,
     account_id_label: str = "",
+    account: dict | None = None,
+    image_override: str | None = None,
+    member_uins: list[str] | None = None,
+    primary_uin: str | None = None,
 ) -> list[str]:
-    img = SNOWLUMA_DOCKER_IMAGE
+    img = resolve_snowluma_run_image(
+        config,
+        account=account,
+        runtime=runtime,
+        override=image_override,
+    )
     in_webui = _internal_webui_port(config)
     in_http = _internal_onebot_http_port(config)
     in_ws = _internal_onebot_ws_port(config)
@@ -340,12 +518,35 @@ def build_snowluma_docker_run_argv_for_runtime(
         argv.extend(["-p", f"{vnc}:{in_vnc}"])
 
     append_snowluma_docker_resource_limits(argv, config)
+
+    from .snowluma_multi_qq import append_snowluma_multi_qq_docker_args
+
+    uins = member_uins
+    primary = primary_uin
+    if uins is None and account is not None:
+        raw = account.get("snowluma_member_uins")
+        if isinstance(raw, (list, tuple)):
+            uins = [str(x) for x in raw]
+    if primary is None and account is not None:
+        primary = str(account.get("snowluma_primary_uin") or "").strip() or None
+    append_snowluma_multi_qq_docker_args(
+        argv,
+        data_dir=data_root,
+        member_uins=uins,
+        primary_uin=primary,
+    )
+
     argv.append(img)
     return argv
 
 
-def snowluma_docker_program_dir_marker(config: Any) -> str:
-    return f"docker:snowluma:{SNOWLUMA_DOCKER_IMAGE}"
+def snowluma_docker_program_dir_marker(
+    config: Any,
+    *,
+    account: dict | None = None,
+    runtime: dict | None = None,
+) -> str:
+    return f"docker:snowluma:{resolve_snowluma_run_image(config, account=account, runtime=runtime)}"
 
 
 async def snowluma_docker_stop(name: str) -> None:

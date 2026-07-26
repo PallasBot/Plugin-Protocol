@@ -38,7 +38,16 @@ snowluma_docker_stub = types.ModuleType(f"{_PKG}.snowluma_docker")
 snowluma_docker_stub.snowluma_docker_container_name = lambda account: (
     f"pallas-proto-sl-{account.get('id', 'x')}"
 )
+snowluma_docker_stub.snowluma_docker_container_name_for_runtime = lambda runtime: (
+    f"pallas-proto-sl-{runtime.get('id', 'x')}"
+)
 sys.modules[f"{_PKG}.snowluma_docker"] = snowluma_docker_stub
+
+linux_docker_stub = types.ModuleType(f"{_PKG}.linux_docker")
+linux_docker_stub.sanitize_docker_name_suffix = lambda value: str(value or "x")
+sys.modules[f"{_PKG}.linux_docker"] = linux_docker_stub
+
+multi_qq = load_module(f"{_PKG}.snowluma_multi_qq", "snowluma_multi_qq.py")
 
 qr_capture = load_module(
     f"{_PKG}.snowluma_qr_capture", "snowluma_qr_capture.py"
@@ -47,6 +56,8 @@ account_uses_snowluma_docker = qr_capture.account_uses_snowluma_docker
 capture_snowluma_qrcode_once = qr_capture.capture_snowluma_qrcode_once
 extract_qr_png_from_screen = qr_capture.extract_qr_png_from_screen
 find_qq_login_window = qr_capture.find_qq_login_window
+list_qq_login_windows = qr_capture.list_qq_login_windows
+pick_qq_login_window = qr_capture.pick_qq_login_window
 is_known_qq_login_failure_text = qr_capture.is_known_qq_login_failure_text
 is_known_qq_expired_qrcode_text = qr_capture.is_known_qq_expired_qrcode_text
 is_known_dismissable_xmessage_text = qr_capture.is_known_dismissable_xmessage_text
@@ -70,6 +81,23 @@ def test_find_qq_login_window() -> None:
     """
     found = find_qq_login_window(tree)
     assert found == ("0x800003", 320, 460)
+
+
+def test_pick_qq_login_window_prefers_matching_pid() -> None:
+    tree = """
+        0x800001 "QQ": ("qq" "QQ")  320x460+0+0  +100+100
+        0x800002 "QQ": ("qq" "QQ")  400x500+0+0  +200+200
+    """
+    windows = list_qq_login_windows(tree)
+    assert [item[0] for item in windows] == ["0x800001", "0x800002"]
+
+    def pid_of(window_id: str) -> int | None:
+        return {"0x800001": 111, "0x800002": 222}.get(window_id)
+
+    picked = pick_qq_login_window(tree, prefer_pid=222, window_pid_of=pid_of)
+    assert picked == ("0x800002", 400, 500)
+    fallback = pick_qq_login_window(tree, prefer_pid=999, window_pid_of=pid_of)
+    assert fallback == ("0x800001", 320, 460)
 
 
 def test_known_qq_login_failure_text_matches_s26_dialog() -> None:
@@ -449,6 +477,44 @@ def test_write_qrcode_cache(tmp_path: Path) -> None:
     path = write_qrcode_cache(ad, b"\x89PNG")
     assert path.is_file()
     assert path.parent.name == "cache"
+    assert path.name == "qrcode.png"
+
+
+def test_write_qrcode_cache_per_uin(tmp_path: Path) -> None:
+    ad = tmp_path / "data"
+    path = write_qrcode_cache(ad, b"\x89PNG-uin", qq="3803448823")
+    assert path == ad / "cache" / "qrcode_3803448823.png"
+    assert path.read_bytes() == b"\x89PNG-uin"
+    assert (ad / "cache" / "qrcode.png").read_bytes() == b"\x89PNG-uin"
+
+
+def test_resolve_account_qq_home_primary_vs_extra() -> None:
+    members = ["3879348674", "3803448823"]
+    assert multi_qq.resolve_account_qq_home(
+        "3879348674",
+        member_uins=members,
+        primary_uin="3879348674",
+    ) == "/app"
+    assert multi_qq.resolve_account_qq_home(
+        "3803448823",
+        member_uins=members,
+        primary_uin="3879348674",
+    ) == "/app/qq-homes/3803448823"
+
+
+def test_append_snowluma_multi_qq_docker_args(tmp_path: Path) -> None:
+    argv: list[str] = []
+    extras = multi_qq.append_snowluma_multi_qq_docker_args(
+        argv,
+        data_dir=tmp_path,
+        member_uins=["111", "222"],
+        primary_uin="111",
+    )
+    assert extras == ["/app/qq-homes/222"]
+    joined = " ".join(argv)
+    assert f"{tmp_path.resolve()}/docker/snowluma/qq-homes:/app/qq-homes" in joined
+    assert "SNOWLUMA_EXTRA_QQ_HOMES=/app/qq-homes/222" in joined
+    assert (tmp_path / "docker" / "snowluma" / "qq-homes" / "222").is_dir()
 
 
 def test_capture_screen_png_from_window_id() -> None:
@@ -533,6 +599,8 @@ def test_attempt_quick_login_dismisses_only_expired_session_prompt() -> None:
     with (
         patch.object(qr_capture, "_command_available_in_container", return_value=True),
         patch.object(qr_capture, "xmessage_is_known_dismissable", return_value=True),
+        patch.object(qr_capture, "ensure_qq_auto_login_checked", return_value=True),
+        patch.object(qr_capture, "resolve_prefer_qq_pid_for_account", return_value=None),
         patch.object(
             qr_capture, "confirm_known_qq_login_failure_dialog", return_value=False
         ),
@@ -599,6 +667,8 @@ def test_attempt_quick_login_dismisses_recognized_fbsetbg_xmessage() -> None:
     with (
         patch.object(qr_capture, "_command_available_in_container", return_value=True),
         patch.object(qr_capture, "xmessage_is_known_dismissable", return_value=True),
+        patch.object(qr_capture, "ensure_qq_auto_login_checked", return_value=True),
+        patch.object(qr_capture, "resolve_prefer_qq_pid_for_account", return_value=None),
         patch.object(
             qr_capture, "confirm_known_qq_login_failure_dialog", return_value=False
         ),
@@ -656,6 +726,8 @@ def test_attempt_quick_login_confirms_recognized_qq_failure_dialog() -> None:
     def text_runner(_container: str, cmd: list[str], *, display: str) -> str:
         if cmd == ["xwininfo", "-root", "-tree"]:
             return ' 0x2 "QQ": ("qq" "QQ") 320x460+0+0'
+        if cmd[:2] == ["xprop", "-id"]:
+            return ""
         assert cmd[:2] == ["sh", "-c"]
         return "身份验证失效，请你重新登录。(s26)"
 
@@ -663,7 +735,11 @@ def test_attempt_quick_login_confirms_recognized_qq_failure_dialog() -> None:
         calls.append(cmd)
         return 0
 
-    with patch.object(qr_capture, "_command_available_in_container", return_value=True):
+    with (
+        patch.object(qr_capture, "_command_available_in_container", return_value=True),
+        patch.object(qr_capture, "ensure_qq_auto_login_checked", return_value=True),
+        patch.object(qr_capture, "resolve_prefer_qq_pid_for_account", return_value=None),
+    ):
         assert qr_capture.attempt_snowluma_quick_login(
             account, run_exec=exec_runner, run_exec_text=text_runner
         )

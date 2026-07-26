@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import operator
 import re
 import subprocess
 import time
@@ -119,7 +120,13 @@ def find_qq_login_window(
     tree_text: str,
 ) -> tuple[str, int, int] | None:
     """从 ``xwininfo -root -tree`` 输出中定位 QQ 扫码登录窗（约 320×460）。"""
-    best: tuple[str, int, int, int] | None = None
+    windows = list_qq_login_windows(tree_text)
+    return windows[0] if windows else None
+
+
+def list_qq_login_windows(tree_text: str) -> list[tuple[str, int, int]]:
+    """列出所有疑似 QQ 登录窗，面积小的优先（扫码/一键登录窗通常更小）。"""
+    found: list[tuple[str, int, int, int]] = []
     for match in QQ_LOGIN_WINDOW_RE.finditer(tree_text):
         window_id = match.group(1)
         width = int(match.group(2))
@@ -127,11 +134,80 @@ def find_qq_login_window(
         if width < 200 or width > 520 or height < 300 or height > 620:
             continue
         area = width * height
-        if best is None or area < best[3]:
-            best = (window_id, width, height, area)
-    if best is None:
+        found.append((window_id, width, height, area))
+    found.sort(key=operator.itemgetter(3))
+    return [(window_id, width, height) for window_id, width, height, _ in found]
+
+
+def account_qq_uin(account: dict) -> str:
+    explicit = str(account.get("qq", "") or "").strip()
+    if explicit.isdigit():
+        return explicit
+    account_id = str(account.get("id", "") or "").strip()
+    if account_id.isdigit():
+        return account_id
+    return ""
+
+
+def account_multi_qq_context(account: dict) -> tuple[list[str], str | None]:
+    raw = account.get("snowluma_member_uins")
+    members: list[str] = []
+    if isinstance(raw, (list, tuple)):
+        for item in raw:
+            uin = str(item or "").strip()
+            if uin.isdigit() and uin not in members:
+                members.append(uin)
+    primary = str(account.get("snowluma_primary_uin") or "").strip() or None
+    qq = account_qq_uin(account)
+    if qq and qq not in members:
+        members.append(qq)
+    if primary is None and members:
+        primary = members[0]
+    return members, primary
+
+
+def resolve_prefer_qq_pid_for_account(
+    account: dict,
+    container_name: str,
+    *,
+    display: str = DEFAULT_DISPLAY,
+    run_exec_text: Any | None = None,
+) -> int | None:
+    from .snowluma_multi_qq import resolve_qq_main_pid_for_uin
+
+    qq = account_qq_uin(account)
+    if not qq:
         return None
-    return best[0], best[1], best[2]
+    members, primary = account_multi_qq_context(account)
+    return resolve_qq_main_pid_for_uin(
+        container_name,
+        qq,
+        member_uins=members or None,
+        primary_uin=primary,
+        display=display,
+        run_exec_text=run_exec_text,
+    )
+
+
+def pick_qq_login_window(
+    tree_text: str,
+    *,
+    prefer_pid: int | None = None,
+    window_pid_of: Any | None = None,
+) -> tuple[str, int, int] | None:
+    """多登录窗时优先匹配 ``prefer_pid``（``_NET_WM_PID``），否则取面积最小者。"""
+    windows = list_qq_login_windows(tree_text)
+    if not windows:
+        return None
+    if prefer_pid and callable(window_pid_of):
+        for window_id, width, height in windows:
+            try:
+                pid = window_pid_of(window_id)
+            except Exception:
+                pid = None
+            if pid == prefer_pid:
+                return window_id, width, height
+    return windows[0]
 
 
 def list_xmessage_window_ids(tree_text: str) -> list[str]:
@@ -320,9 +396,25 @@ def locate_qq_login_window(
     display: str = DEFAULT_DISPLAY,
     run_exec: Any | None = None,
     run_exec_text: Any | None = None,
+    prefer_pid: int | None = None,
 ) -> tuple[str, int, int] | None:
+    from .snowluma_multi_qq import window_net_wm_pid
+
     text_runner = run_exec_text or _docker_exec_text
     exec_runner = run_exec or _docker_exec
+
+    def pick(tree: str) -> tuple[str, int, int] | None:
+        return pick_qq_login_window(
+            tree,
+            prefer_pid=prefer_pid,
+            window_pid_of=lambda wid: window_net_wm_pid(
+                container_name,
+                wid,
+                display=display,
+                run_exec_text=text_runner,
+            ),
+        )
+
     tree = text_runner(
         container_name,
         ["xwininfo", "-root", "-tree"],
@@ -352,7 +444,7 @@ def locate_qq_login_window(
         )
         if not tree or list_xmessage_window_ids(tree):
             return None
-    login = find_qq_login_window(tree)
+    login = pick(tree)
     if login is None:
         return None
     window_id, width, height = login
@@ -376,7 +468,7 @@ def locate_qq_login_window(
     )
     if not tree or list_xmessage_window_ids(tree):
         return None
-    return find_qq_login_window(tree)
+    return pick(tree)
 
 
 def click_qq_login_window(
@@ -477,17 +569,26 @@ def ensure_qq_auto_login_checked(
     run_cp: Any | None = None,
     run_exec_text: Any | None = None,
     screen_png: bytes | None = None,
+    login_window: tuple[str, int, int] | None = None,
 ) -> bool:
     """定位 QQ 登录窗，确认「自动登录」勾选状态后按需点击。"""
     if not account_uses_snowluma_docker(account):
         return False
     container = resolve_snowluma_docker_container_name(account)
     display = snowluma_qr_capture_display(config)
-    login = locate_qq_login_window(
+    text_runner = run_exec_text or _docker_exec_text
+    prefer_pid = resolve_prefer_qq_pid_for_account(
+        account,
+        container,
+        display=display,
+        run_exec_text=text_runner,
+    )
+    login = login_window or locate_qq_login_window(
         container,
         display=display,
         run_exec=run_exec,
         run_exec_text=run_exec_text,
+        prefer_pid=prefer_pid,
     )
     if login is None:
         return False
@@ -535,15 +636,30 @@ def attempt_snowluma_quick_login(
     container = resolve_snowluma_docker_container_name(account)
     display = snowluma_qr_capture_display(config)
     exec_runner = run_exec or _docker_exec
+    text_runner = run_exec_text or _docker_exec_text
+    prefer_pid = resolve_prefer_qq_pid_for_account(
+        account,
+        container,
+        display=display,
+        run_exec_text=text_runner,
+    )
     login = locate_qq_login_window(
         container,
         display=display,
         run_exec=exec_runner,
         run_exec_text=run_exec_text,
+        prefer_pid=prefer_pid,
     )
     if login is None:
         return False
     window_id, width, height = login
+    ensure_qq_auto_login_checked(
+        account,
+        config=config,
+        run_exec=run_exec,
+        run_exec_text=run_exec_text,
+        login_window=login,
+    )
     clicked = click_qq_login_window(
         container,
         window_id,
@@ -555,8 +671,9 @@ def attempt_snowluma_quick_login(
     )
     if clicked:
         logger.info(
-            "SnowLuma 容器 {} 已点击 QQ「登录」（一键登录界面）",
+            "SnowLuma 容器 {} 已点击 QQ「登录」（一键登录界面）qq={}",
             container,
+            account_qq_uin(account) or "-",
         )
     return clicked
 
@@ -718,12 +835,17 @@ def qrcode_cache_looks_valid(path: Path) -> bool:
     return extract_qr_png_from_screen(payload) is not None
 
 
-def write_qrcode_cache(account_data_dir: Path, png_bytes: bytes) -> Path:
+def write_qrcode_cache(account_data_dir: Path, png_bytes: bytes, *, qq: str = "") -> Path:
     cache_dir = account_data_dir / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    out = account_qrcode_cache_path(account_data_dir)
-    out.write_bytes(png_bytes)
-    return out
+    legacy = account_qrcode_cache_path(account_data_dir)
+    legacy.write_bytes(png_bytes)
+    uin = str(qq or "").strip()
+    if uin.isdigit():
+        out = account_qrcode_cache_path_for_qq(account_data_dir, uin)
+        out.write_bytes(png_bytes)
+        return out
+    return legacy
 
 
 def capture_snowluma_qrcode_once(
@@ -744,16 +866,24 @@ def capture_snowluma_qrcode_once(
     display = snowluma_qr_capture_display(config)
     exec_runner = run_exec or _docker_exec
     text_runner = run_exec_text or _docker_exec_text
+    prefer_pid = resolve_prefer_qq_pid_for_account(
+        account,
+        container,
+        display=display,
+        run_exec_text=text_runner,
+    )
 
     login = locate_qq_login_window(
         container,
         display=display,
         run_exec=exec_runner,
         run_exec_text=text_runner,
+        prefer_pid=prefer_pid,
     )
     if login is None:
         return None
     window_id, width, height = login
+    qq = account_qq_uin(account)
 
     def capture_once() -> bytes | None:
         return capture_screen_png_from_container(
@@ -777,8 +907,9 @@ def capture_snowluma_qrcode_once(
             run_cp=run_cp,
             run_exec_text=run_exec_text,
             screen_png=screen,
+            login_window=login,
         )
-        return write_qrcode_cache(account_data_dir, qr_png)
+        return write_qrcode_cache(account_data_dir, qr_png, qq=qq)
 
     refreshed = click_known_qq_expired_qrcode_refresh(
         container,
@@ -801,12 +932,14 @@ def capture_snowluma_qrcode_once(
                     run_cp=run_cp,
                     run_exec_text=run_exec_text,
                     screen_png=screen,
+                    login_window=login,
                 )
-                return write_qrcode_cache(account_data_dir, qr_png)
+                return write_qrcode_cache(account_data_dir, qr_png, qq=qq)
 
     logger.debug(
-        "SnowLuma 截屏未识别到有效 QQ 登录二维码（可能为一键登录界面或仍在加载）: container={}",
+        "SnowLuma 截屏未识别到有效 QQ 登录二维码（可能为一键登录界面或仍在加载）: container={} qq={}",
         container,
+        qq or "-",
     )
     return None
 

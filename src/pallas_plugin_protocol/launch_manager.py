@@ -385,7 +385,7 @@ class LaunchManager:
         account["args"] = build_snowluma_docker_run_argv(account, self._config, resolve_qq)
         ad = str(account.get("account_data_dir", "") or "").strip()
         account["working_dir"] = ad or ("." if os.name == "nt" else "/")
-        account["program_dir"] = snowluma_docker_program_dir_marker(self._config)
+        account["program_dir"] = snowluma_docker_program_dir_marker(self._config, account=account)
 
     def _apply_snowluma_defaults(self, account: dict, resolve_qq) -> None:
         account.pop("snowluma_linux_docker", None)

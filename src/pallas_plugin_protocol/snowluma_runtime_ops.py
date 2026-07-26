@@ -42,6 +42,73 @@ class SnowLumaRuntimeOpsMixin:
                 out.append(aid)
         return out
 
+    def snowluma_runtime_member_uins(self: PallasProtocolService, runtime_id: str) -> list[str]:
+        uins: list[str] = []
+        seen: set[str] = set()
+        for aid in self.snowluma_runtime_members(runtime_id):
+            acc = self._accounts.get(aid) or {}
+            qq = str(self._resolve_qq(acc) or "").strip()
+            if qq.isdigit() and qq not in seen:
+                seen.add(qq)
+                uins.append(qq)
+        return uins
+
+    def snowluma_runtime_primary_uin(self: PallasProtocolService, runtime_id: str) -> str:
+        runtime = self._sl_runtime_registry.get(runtime_id) or {}
+        legacy = str(runtime.get("legacy_container_account_id") or "").strip()
+        if legacy:
+            acc = self._accounts.get(legacy)
+            if acc:
+                qq = str(self._resolve_qq(acc) or "").strip()
+                if qq.isdigit():
+                    return qq
+        members = self.snowluma_runtime_members(runtime_id)
+        if members:
+            acc = self._accounts.get(members[0]) or {}
+            qq = str(self._resolve_qq(acc) or "").strip()
+            if qq.isdigit():
+                return qq
+        return ""
+
+    def annotate_account_snowluma_multi_qq(self: PallasProtocolService, account: dict) -> None:
+        """写入 ephemeral 多 QQ 上下文，供 docker argv / 截屏按 UIN 选窗。"""
+        rid = str(account.get(SNOWLUMA_RUNTIME_ID_KEY, "") or "").strip()
+        qq = str(self._resolve_qq(account) or "").strip()
+        if rid:
+            members = self.snowluma_runtime_member_uins(rid)
+            primary = self.snowluma_runtime_primary_uin(rid)
+        else:
+            members = [qq] if qq.isdigit() else []
+            primary = qq if qq.isdigit() else ""
+        if qq.isdigit() and qq not in members:
+            members = [*members, qq]
+        account["snowluma_member_uins"] = members
+        account["snowluma_primary_uin"] = primary or (members[0] if members else "")
+
+    async def ensure_snowluma_qq_process_for_account(
+        self: PallasProtocolService,
+        account_id: str,
+        account: dict | None = None,
+    ) -> tuple[bool, int | None, str]:
+        acc = account or self._accounts.get(account_id)
+        if not acc or not acc.get("snowluma_linux_docker"):
+            return False, None, "非 SnowLuma Docker 账号"
+        self.annotate_account_snowluma_multi_qq(acc)
+        from .snowluma_multi_qq import ensure_snowluma_qq_process_for_uin
+        from .snowluma_qr_capture import resolve_snowluma_docker_container_name, snowluma_qr_capture_display
+
+        name = resolve_snowluma_docker_container_name(acc)
+        qq = str(self._resolve_qq(acc) or "").strip()
+        ok, pid, err = await asyncio.to_thread(
+            ensure_snowluma_qq_process_for_uin,
+            name,
+            qq,
+            member_uins=list(acc.get("snowluma_member_uins") or []),
+            primary_uin=str(acc.get("snowluma_primary_uin") or "").strip() or None,
+            display=snowluma_qr_capture_display(self._config),
+        )
+        return ok, pid, err
+
     def resolve_snowluma_runtime(self: PallasProtocolService, account: dict) -> dict | None:
         rid = str(account.get(SNOWLUMA_RUNTIME_ID_KEY, "") or "").strip()
         if not rid:
@@ -193,6 +260,7 @@ class SnowLumaRuntimeOpsMixin:
         seed_id = members[0]
         seed = self._accounts[seed_id]
         self.bind_account_to_snowluma_runtime(seed, runtime)
+        self.annotate_account_snowluma_multi_qq(seed)
         await self.start_account(seed_id)
         for aid in members[1:]:
             acc = self._accounts.get(aid)
@@ -200,9 +268,14 @@ class SnowLumaRuntimeOpsMixin:
                 continue
             be = self._protocol_runtime_backend(acc)
             self.bind_account_to_snowluma_runtime(acc, runtime)
+            self.annotate_account_snowluma_multi_qq(acc)
             be.apply_defaults(acc, self._resolve_qq)
             be.prepare_dirs(acc)
             be.sync_all_configs(acc, self._resolve_qq)
+            try:
+                await self.ensure_snowluma_qq_process_for_account(aid, acc)
+            except Exception:
+                pass
             try:
                 await self.snowluma_inject_hook_via_webui(aid)
             except Exception:

@@ -274,6 +274,13 @@ class Config(BaseModel):
             "例如 mlikiowa/napcat-docker:latest",
         ),
     )
+    pallas_protocol_snowluma_docker_image: str = Field(
+        default="motricseven7/snowluma:latest",
+        description=field_help(
+            "SnowLuma 上游 Docker 基础镜像",
+            "例如 motricseven7/snowluma:v1.12.9；派生镜像会打同名 tag",
+        ),
+    )
     pallas_protocol_docker_onebot_host: str = Field(
         default="",
         description=field_help(

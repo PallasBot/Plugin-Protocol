@@ -22,6 +22,22 @@ def docker_repository_from_ref(ref: str) -> str:
     return s
 
 
+def docker_tag_from_ref(ref: str) -> str:
+    """从 ``repo:tag`` 取 tag；无 tag 或 digest 形态返回 ``latest``。"""
+    s = (ref or "").strip()
+    if not s:
+        return "latest"
+    if "@" in s:
+        s = s.split("@", 1)[0].strip()
+    if ":" not in s:
+        return "latest"
+    i = s.rfind(":")
+    rhs = s[i + 1 :]
+    if not rhs or "/" in rhs:
+        return "latest"
+    return rhs
+
+
 def docker_stderr_suggests_host_port_bind_conflict(text: str) -> bool:
     t = (text or "").lower()
     return (

@@ -33,6 +33,7 @@ for name, file in (
     ("docker_cli", "docker_cli.py"),
     ("docker_onebot_host", "docker_onebot_host.py"),
     ("linux_docker", "linux_docker.py"),
+    ("snowluma_multi_qq", "snowluma_multi_qq.py"),
 ):
     load_module(f"{_PKG}.{name}", file)
 
@@ -89,11 +90,42 @@ def test_build_snowluma_docker_run_argv_includes_memory_limits() -> None:
     assert "SYS_PTRACE" in argv
     assert "SNOWLUMA_ACCEPT_EULA=1" in argv
     assert "SNOWLUMA_ACCEPT_PRIVACY=1" in argv
+    assert any("/docker/snowluma/qq-homes:/app/qq-homes" in str(item) for item in argv)
+    assert not any(str(item).startswith("SNOWLUMA_EXTRA_QQ_HOMES=") for item in argv)
 
 
-def test_snowluma_uses_fixed_local_auto_login_image() -> None:
+def test_build_snowluma_docker_run_argv_multi_qq_sets_extra_homes(tmp_path: Path) -> None:
     cfg = SimpleNamespace(
-        pallas_protocol_snowluma_docker_image="registry.invalid/ignored:old",
+        pallas_protocol_snowluma_docker_image="motricseven7/snowluma:latest",
+        pallas_protocol_snowluma_docker_internal_webui_port=5099,
+        pallas_protocol_snowluma_docker_internal_onebot_http_port=3000,
+        pallas_protocol_snowluma_docker_internal_onebot_ws_port=3001,
+        pallas_protocol_snowluma_docker_shm_size="1g",
+        pallas_protocol_snowluma_docker_memory_limit="",
+        pallas_protocol_snowluma_docker_memory_swap="",
+        pallas_protocol_snowluma_docker_vnc_passwd="",
+        pallas_protocol_snowluma_docker_host_novnc_port=0,
+        pallas_protocol_snowluma_docker_host_vnc_port=0,
+        pallas_protocol_snowluma_docker_internal_novnc_port=6081,
+        pallas_protocol_snowluma_docker_internal_vnc_port=5900,
+    )
+    account = {
+        "id": "111",
+        "webui_port": 6100,
+        "snowluma_docker_host_onebot_http": 17100,
+        "snowluma_docker_host_onebot_ws": 17101,
+        "account_data_dir": str(tmp_path),
+        "snowluma_member_uins": ["111", "222"],
+        "snowluma_primary_uin": "111",
+    }
+    argv = build_snowluma_docker_run_argv(account, cfg, lambda _: "111")
+    assert "SNOWLUMA_EXTRA_QQ_HOMES=/app/qq-homes/222" in argv
+    assert (tmp_path / "docker" / "snowluma" / "qq-homes" / "222").is_dir()
+
+
+def test_snowluma_maps_base_tag_onto_derived_repo() -> None:
+    cfg = SimpleNamespace(
+        pallas_protocol_snowluma_docker_image="registry.invalid/ignored:v1.12.8",
         pallas_protocol_snowluma_docker_internal_webui_port=5099,
         pallas_protocol_snowluma_docker_internal_onebot_http_port=3000,
         pallas_protocol_snowluma_docker_internal_onebot_ws_port=3001,
@@ -114,8 +146,38 @@ def test_snowluma_uses_fixed_local_auto_login_image() -> None:
         "account_data_dir": "/tmp/sl-test",
     }
     argv = build_snowluma_docker_run_argv(account, cfg, lambda _: "123")
-    assert argv[-1] == "pallas/snowluma-auto-login:latest"
-    assert snowluma_docker_program_dir_marker(cfg) == "docker:snowluma:pallas/snowluma-auto-login:latest"
+    assert argv[-1] == "pallas/snowluma-auto-login:v1.12.8"
+    assert snowluma_docker_program_dir_marker(cfg) == "docker:snowluma:pallas/snowluma-auto-login:v1.12.8"
+
+
+def test_account_snowluma_docker_image_overrides_global() -> None:
+    cfg = SimpleNamespace(
+        pallas_protocol_snowluma_docker_image="motricseven7/snowluma:latest",
+        pallas_protocol_snowluma_docker_internal_webui_port=5099,
+        pallas_protocol_snowluma_docker_internal_onebot_http_port=3000,
+        pallas_protocol_snowluma_docker_internal_onebot_ws_port=3001,
+        pallas_protocol_snowluma_docker_shm_size="1g",
+        pallas_protocol_snowluma_docker_memory_limit="",
+        pallas_protocol_snowluma_docker_memory_swap="",
+        pallas_protocol_snowluma_docker_vnc_passwd="",
+        pallas_protocol_snowluma_docker_host_novnc_port=0,
+        pallas_protocol_snowluma_docker_host_vnc_port=0,
+        pallas_protocol_snowluma_docker_internal_novnc_port=6081,
+        pallas_protocol_snowluma_docker_internal_vnc_port=5900,
+    )
+    account = {
+        "id": "123",
+        "webui_port": 6100,
+        "snowluma_docker_host_onebot_http": 17100,
+        "snowluma_docker_host_onebot_ws": 17101,
+        "account_data_dir": "/tmp/sl-test",
+        "snowluma_docker_image": "pallas/snowluma-auto-login:v1.12.9",
+    }
+    argv = build_snowluma_docker_run_argv(account, cfg, lambda _: "123")
+    assert argv[-1] == "pallas/snowluma-auto-login:v1.12.9"
+    assert (
+        snowluma_docker_program_dir_marker(cfg, account=account) == "docker:snowluma:pallas/snowluma-auto-login:v1.12.9"
+    )
 
 
 def test_snowluma_dockerfile_pins_base_image_and_installs_xdotool() -> None:
@@ -135,21 +197,49 @@ def test_ensure_snowluma_docker_image_builds_local_tag(monkeypatch) -> None:
 
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs.get("input")))
-        return subprocess.CompletedProcess(argv, 1 if "inspect" in argv else 0, b"", b"")
+        if "inspect" in argv:
+            return subprocess.CompletedProcess(argv, 1, b"", b"")
+        if argv[:3] == ["docker", "run", "--rm"]:
+            return subprocess.CompletedProcess(argv, 0, '{"version":"1.12.9"}\n', "")
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
 
     monkeypatch.setattr(snowluma_docker.subprocess, "run", fake_run)
     ok, msg = snowluma_docker.ensure_snowluma_docker_image()
     assert ok is True
     assert "pallas/snowluma-auto-login:latest" in msg or msg == ""
-    assert calls[1][0] == [
+    assert calls[0][0] == [
         "docker",
-        "build",
-        "--tag",
+        "image",
+        "inspect",
         "pallas/snowluma-auto-login:latest",
-        "-",
     ]
+    build_calls = [c for c in calls if c[0][:2] == ["docker", "build"]]
+    assert len(build_calls) == 1
+    assert "pallas/snowluma-auto-login:latest" in build_calls[0][0]
+    assert "pallas/snowluma-auto-login:v1.12.9" in build_calls[0][0]
+    assert "FROM motricseven7/snowluma:latest" in str(build_calls[0][1])
+    assert "xdotool" in str(build_calls[0][1])
+
+
+def test_rebuild_snowluma_docker_image_dual_tags_latest_and_version(monkeypatch) -> None:
+    calls: list[tuple[list[str], str | None]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs.get("input")))
+        if argv[:3] == ["docker", "run", "--rm"]:
+            return subprocess.CompletedProcess(argv, 0, '{"version":"1.12.9"}\n', "")
+        return subprocess.CompletedProcess(argv, 0, "built\n", "")
+
+    monkeypatch.setattr(snowluma_docker.subprocess, "run", fake_run)
+    ok, out = snowluma_docker.rebuild_snowluma_docker_image("motricseven7/snowluma:latest")
+    assert ok is True
+    assert len(calls) == 2
+    build_argv = calls[1][0]
+    assert build_argv[0:3] == ["docker", "build", "--tag"]
+    assert "pallas/snowluma-auto-login:latest" in build_argv
+    assert "pallas/snowluma-auto-login:v1.12.9" in build_argv
     assert "FROM motricseven7/snowluma:latest" in str(calls[1][1])
-    assert "xdotool" in str(calls[1][1])
+    assert "built" in out
 
 
 def test_rebuild_snowluma_docker_image_forces_build_with_pulled_base(monkeypatch) -> None:
@@ -168,7 +258,7 @@ def test_rebuild_snowluma_docker_image_forces_build_with_pulled_base(monkeypatch
         "docker",
         "build",
         "--tag",
-        "pallas/snowluma-auto-login:latest",
+        "pallas/snowluma-auto-login:nightly",
         "-",
     ]
     assert "FROM motricseven7/snowluma:nightly" in str(calls[0][1])
@@ -180,12 +270,22 @@ def test_ensure_snowluma_docker_image_force_skips_inspect(monkeypatch) -> None:
 
     def fake_run(argv, **kwargs):
         calls.append(argv)
+        if argv[:3] == ["docker", "run", "--rm"]:
+            return subprocess.CompletedProcess(argv, 0, '{"version":"1.0.0"}\n', "")
         return subprocess.CompletedProcess(argv, 0, "", "")
 
     monkeypatch.setattr(snowluma_docker.subprocess, "run", fake_run)
     assert snowluma_docker.ensure_snowluma_docker_image(force=True)[0] is True
     assert all("inspect" not in argv for argv in calls)
-    assert calls[0][:3] == ["docker", "build", "--tag"]
+    assert any(argv[:2] == ["docker", "build"] for argv in calls)
+
+
+def test_derived_snowluma_image_ref_keeps_tag() -> None:
+    assert snowluma_docker.derived_snowluma_image_ref("motricseven7/snowluma:v1.12.9") == (
+        "pallas/snowluma-auto-login:v1.12.9"
+    )
+    assert snowluma_docker.normalize_snowluma_version_tag("1.12.9") == "v1.12.9"
+    assert snowluma_docker.normalize_snowluma_version_tag("v1.12.9") == "v1.12.9"
 
 
 def test_snowluma_dockerfile_accepts_custom_base() -> None:
