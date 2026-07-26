@@ -2820,6 +2820,11 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         if account_uses_snowluma_docker(account):
             if not self._linux_docker_container_running_sync(account):
                 raise ValueError("SnowLuma 容器未运行，请先启动账号")
+            self.annotate_account_snowluma_multi_qq(account)
+            try:
+                await self.ensure_snowluma_qq_process_for_account(account_id, account)
+            except Exception:
+                pass
             restored = await asyncio.to_thread(
                 restore_snowluma_qq_login,
                 account,
