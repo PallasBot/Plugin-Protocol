@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+## [4.0.47] - 2026-07-28
+
+- feat(snowluma): Docker 注入 `SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD` + `SNOWLUMA_HOOK_AUTOLOAD=1`，固定 WebUI 口令并默认交给上游自动注入 Hook
+- fix(snowluma): WebUI 登录有托管口令时不再连环试日志初始密码，避免触发 429；429 给出明确提示
+- fix(snowluma): 启停/一键登录/共享 Runtime 副号不再自动经 WebUI 注入 Hook（保留手动「注入」）
+- feat(snowluma): WebUI 换挂 Runtime 保存后，独占旧 Runtime 会停并删除旧容器，且清理已空的 Runtime 注册；共享且仍有其它账号时不删
+
 ## [4.0.46] - 2026-07-26
 
 - fix(snowluma): 切换到新建 Runtime 时同步 OneBot 宿主机端口到 Runtime，避免 Docker 启动报缺端口
