@@ -120,20 +120,110 @@ def _docker_exec_text(
     return (proc.stdout or "").strip()
 
 
+def supervisorctl_qq(
+    container_name: str,
+    action: str,
+    *,
+    program: str = "qq",
+    timeout: float = 30.0,
+) -> tuple[bool, str]:
+    """对镜像内 supervisord 的 QQ 程序执行 start/stop（``qq`` / ``qq-extra-N``）。"""
+    act = str(action or "").strip().lower()
+    prog = str(program or "").strip() or "qq"
+    if act not in {"start", "stop"}:
+        return False, f"不支持的 supervisorctl 动作：{action}"
+    if not re.fullmatch(r"qq(?:-extra-\d+)?", prog):
+        return False, f"不支持的 supervisor 程序名：{prog}"
+    cmd = [
+        "docker",
+        "exec",
+        container_name,
+        "supervisorctl",
+        "-c",
+        "/etc/supervisord.conf",
+        act,
+        prog,
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as err:
+        return False, f"supervisorctl {act} {prog} 失败：{err}"
+    detail = ((proc.stderr or "") + (proc.stdout or "")).strip()
+    if proc.returncode != 0:
+        return False, detail[-300:] or f"supervisorctl {act} {prog} 失败 (exit {proc.returncode})"
+    return True, detail
+
+
+def resolve_qq_supervisor_program(
+    container_name: str,
+    home: str,
+    *,
+    display: str = DEFAULT_DISPLAY,
+    run_exec_text: Any | None = None,
+) -> str | None:
+    """按 HOME 解析 supervisord 程序名：主号 ``qq``，副号 ``qq-extra-N``。"""
+    target_home = str(home or "").strip() or PRIMARY_QQ_HOME
+    if target_home in {PRIMARY_QQ_HOME, "/home/snowluma", ""}:
+        return "qq"
+    text_runner = run_exec_text or _docker_exec_text
+    conf = text_runner(
+        container_name,
+        ["sh", "-c", "cat /etc/supervisor/conf.d/extra-qq.conf 2>/dev/null || true"],
+        display=display,
+    )
+    current: str | None = None
+    home_pat = re.compile(r'HOME=(?:"([^"]+)"|\'([^\']+)\'|([^,\s]+))')
+    for line in conf.splitlines():
+        m_prog = re.match(r"\[program:(qq-extra-\d+)\]\s*$", line.strip())
+        if m_prog:
+            current = m_prog.group(1)
+            continue
+        if not current:
+            continue
+        m_home = home_pat.search(line)
+        if not m_home:
+            continue
+        conf_home = (m_home.group(1) or m_home.group(2) or m_home.group(3) or "").strip()
+        if conf_home == target_home:
+            return current
+    # 回退：按 SNOWLUMA_EXTRA_QQ_HOMES 顺序（与 start.sh 生成 conf 一致）
+    extras_raw = text_runner(
+        container_name,
+        ["sh", "-c", 'printf %s "${SNOWLUMA_EXTRA_QQ_HOMES-}"'],
+        display=display,
+    )
+    extras = [h.strip() for h in extras_raw.split(",") if h.strip()]
+    try:
+        idx = extras.index(target_home)
+    except ValueError:
+        return None
+    return f"qq-extra-{idx + 1}"
+
+
 def list_qq_main_pids_by_home(
     container_name: str,
     *,
     display: str = DEFAULT_DISPLAY,
     run_exec_text: Any | None = None,
 ) -> dict[str, int]:
-    """容器内主 QQ 进程：``HOME -> pid``（仅无 ``--type=`` 的主进程）。"""
+    """容器内主 QQ 进程：``HOME -> pid``（排除 ``--type=`` 渲染进程与 crashpad）。"""
     text_runner = run_exec_text or _docker_exec_text
+    # 勿用笼统 *qq*：会命中 /opt/QQ/chrome_crashpad_handler、qq-homes 路径
     script = (
         "for f in /proc/[0-9]*/cmdline; do "
         "pid=${f%/cmdline}; pid=${pid#/proc/}; "
         "cmd=$(tr '\\0' ' ' < \"$f\" 2>/dev/null); "
         "case \"$cmd\" in *'--type='*) continue ;; esac; "
-        'case "$cmd" in *qq*) ;; *) continue ;; esac; '
+        'case "$cmd" in '
+        "qq\\ *|*/qq\\ *|qq) ;; "
+        "*) continue ;; "
+        "esac; "
         "home=$(tr '\\0' '\\n' < /proc/$pid/environ 2>/dev/null | sed -n 's/^HOME=//p' | head -n1); "
         "home=${home:-/app}; "
         'printf \'%s %s\\n\' "$pid" "$home"; '
@@ -214,13 +304,41 @@ def ensure_snowluma_qq_process_for_uin(
         member_uins=member_uins,
         primary_uin=primary_uin,
     )
-    if home == PRIMARY_QQ_HOME:
-        return False, None, "主号 QQ 进程尚未就绪"
+    program = resolve_qq_supervisor_program(
+        container_name,
+        home,
+        display=display,
+        run_exec_text=text_runner,
+    )
+    if program:
+        # 主号 qq / 副号 qq-extra-N 均由 supervisord 托管（autorestart）
+        ok, detail = supervisorctl_qq(container_name, "start", program=program)
+        if not ok:
+            return False, None, detail or f"未能启动 QQ（supervisorctl {program}）"
+        time.sleep(1.5)
+        pid = resolve_qq_main_pid_for_uin(
+            container_name,
+            target,
+            member_uins=member_uins,
+            primary_uin=primary_uin,
+            display=display,
+            run_exec_text=text_runner,
+        )
+        if pid:
+            logger.info(
+                "SnowLuma 容器 {} 已经 supervisorctl 启动 UIN {} QQ pid={} program={}",
+                container_name,
+                target,
+                pid,
+                program,
+            )
+            return True, pid, ""
+        return False, None, f"supervisorctl start {program} 后仍未见 QQ 进程"
 
     mkdir_script = f"mkdir -p '{home}' && (chown -R snowluma:snowluma '{home}' 2>/dev/null || true)"
     text_runner(container_name, ["sh", "-c", mkdir_script], display=display)
 
-    # 与镜像 start.sh 一致：独立 HOME + 同组 QQ flags
+    # 无 supervisord 条目时的兜底：独立 HOME + 同组 QQ flags
     launch_cmd = [
         "docker",
         "exec",
@@ -286,6 +404,11 @@ def stop_snowluma_qq_process_for_uin(
     target = str(uin or "").strip()
     if not target.isdigit():
         return False, None, "QQ 无效"
+    home = resolve_account_qq_home(
+        target,
+        member_uins=member_uins,
+        primary_uin=primary_uin,
+    )
     pid = resolve_qq_main_pid_for_uin(
         container_name,
         target,
@@ -294,25 +417,75 @@ def stop_snowluma_qq_process_for_uin(
         display=display,
         run_exec_text=text_runner,
     )
-    if not pid:
-        return True, None, ""
-    raw = text_runner(
+    program = resolve_qq_supervisor_program(
         container_name,
-        ["sh", "-c", f"kill {pid} 2>/dev/null || kill -9 {pid} 2>/dev/null || true"],
-        display=display,
-    )
-    # kill 成功时 stdout 常为空；再查一次确认
-    time.sleep(0.4)
-    still = resolve_qq_main_pid_for_uin(
-        container_name,
-        target,
-        member_uins=member_uins,
-        primary_uin=primary_uin,
+        home,
         display=display,
         run_exec_text=text_runner,
     )
-    if still and still == pid:
-        return False, pid, (raw[-200:] if raw else f"未能停止 QQ 进程 pid={pid}")
+    # supervisord 托管（主号 qq / 副号 qq-extra-N）均带 autorestart，必须走 supervisorctl
+    if program:
+        ok, detail = supervisorctl_qq(container_name, "stop", program=program)
+        if not ok:
+            return False, pid, detail or f"未能停止 QQ（supervisorctl {program}）"
+        time.sleep(0.6)
+        still = resolve_qq_main_pid_for_uin(
+            container_name,
+            target,
+            member_uins=member_uins,
+            primary_uin=primary_uin,
+            display=display,
+            run_exec_text=text_runner,
+        )
+        if still:
+            return False, still, f"supervisorctl stop {program} 后进程仍在 pid={still}"
+        logger.info(
+            "SnowLuma 容器 {} 已经 supervisorctl 停止 UIN {} QQ（program={} 原 pid={}）",
+            container_name,
+            target,
+            program,
+            pid,
+        )
+        return True, pid, ""
+
+    if not pid:
+        return True, None, ""
+
+    def _alive_same_pid() -> bool:
+        still = resolve_qq_main_pid_for_uin(
+            container_name,
+            target,
+            member_uins=member_uins,
+            primary_uin=primary_uin,
+            display=display,
+            run_exec_text=text_runner,
+        )
+        return bool(still and still == pid)
+
+    # Electron/QQ 常吞掉 SIGTERM 且 kill 仍返回 0，不能写 kill || kill -9
+    text_runner(
+        container_name,
+        ["sh", "-c", f"kill -TERM {pid} 2>/dev/null || true"],
+        display=display,
+    )
+    time.sleep(0.5)
+    if _alive_same_pid():
+        text_runner(
+            container_name,
+            [
+                "sh",
+                "-c",
+                (
+                    f"kill -KILL {pid} 2>/dev/null || true; "
+                    # 顺带清同树残留（失败忽略）
+                    f"pkill -KILL -P {pid} 2>/dev/null || true"
+                ),
+            ],
+            display=display,
+        )
+        time.sleep(0.4)
+    if _alive_same_pid():
+        return False, pid, f"未能停止 QQ 进程 pid={pid}"
     logger.info(
         "SnowLuma 容器 {} 已停止 UIN {} 的 QQ 进程 pid={}",
         container_name,
@@ -355,9 +528,11 @@ __all__ = [
     "resolve_account_qq_home",
     "resolve_primary_uin",
     "resolve_qq_main_pid_for_uin",
+    "resolve_qq_supervisor_program",
     "snowluma_qq_home_container_path",
     "snowluma_qq_home_host_path",
     "snowluma_qq_homes_host_root",
     "stop_snowluma_qq_process_for_uin",
+    "supervisorctl_qq",
     "window_net_wm_pid",
 ]

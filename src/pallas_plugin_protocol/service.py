@@ -1486,8 +1486,16 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
 
     def list_accounts(self) -> list[dict]:
         out: list[dict] = []
+        snowluma_home_pid_cache: dict[str, dict[str, int]] = {}
         for account_id, account in self._accounts.items():
-            out.append(self._compose_account_state(account_id, account, brief=True))
+            out.append(
+                self._compose_account_state(
+                    account_id,
+                    account,
+                    brief=True,
+                    snowluma_home_pid_cache=snowluma_home_pid_cache,
+                )
+            )
         return out
 
     def has_account(self, account_id: str) -> bool:
@@ -2530,24 +2538,9 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
             if pending is not None and not pending.done():
                 pending.cancel()
             if account.get("snowluma_linux_docker"):
-                try:
-                    ok, _pid, err = await self.stop_snowluma_qq_process_for_account(account_id, account)
-                    if not ok and err:
-                        from nonebot import logger
-
-                        logger.warning(
-                            "Pallas-Bot 协议端: 停止账号 {} 的 QQ 进程失败：{}",
-                            account_id,
-                            err,
-                        )
-                except Exception as err:
-                    from nonebot import logger
-
-                    logger.warning(
-                        "Pallas-Bot 协议端: 停止账号 {} 的 QQ 进程异常：{}",
-                        account_id,
-                        err,
-                    )
+                ok, _pid, err = await self.stop_snowluma_qq_process_for_account(account_id, account)
+                if not ok:
+                    raise ValueError(err or "停止 QQ 进程失败")
             return self._compose_account_state(account_id, account)
         runtime = self._runtimes.get(account_id)
         if account.get("napcat_linux_docker") or account.get("snowluma_linux_docker"):
@@ -3066,16 +3059,36 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
             else:
                 runtime.process = None
 
-    def _compose_account_state(self, account_id: str, account: dict, *, brief: bool = False) -> dict:
+    def _compose_account_state(
+        self,
+        account_id: str,
+        account: dict,
+        *,
+        brief: bool = False,
+        snowluma_home_pid_cache: dict[str, dict[str, int]] | None = None,
+    ) -> dict:
         be = self._protocol_runtime_backend(account)
         be.apply_defaults(account, self._resolve_qq)
         track_key = self._process_track_id_for_account(account_id, account)
         runtime = self._runtimes.get(track_key) or self._runtimes.get(account_id)
         process_running = False
+        container_running = False
         pid = None
         started_at = None
-        if account.get("napcat_linux_docker") or account.get("snowluma_linux_docker"):
-            process_running = self._linux_docker_container_running_sync(account)
+        if account.get("snowluma_linux_docker"):
+            # 共享 Runtime：容器在 ≠ 该号 QQ 在；卡片「运行中」应对齐 QQ 进程
+            container_running = self._linux_docker_container_running_sync(account)
+            if container_running:
+                qq_pid = self.resolve_snowluma_qq_pid_sync(
+                    account,
+                    home_pid_cache=snowluma_home_pid_cache,
+                )
+                process_running = qq_pid is not None
+                pid = qq_pid
+            started_at = runtime.started_at.isoformat() if runtime and runtime.started_at else None
+        elif account.get("napcat_linux_docker"):
+            container_running = self._linux_docker_container_running_sync(account)
+            process_running = container_running
             started_at = runtime.started_at.isoformat() if runtime and runtime.started_at else None
         elif runtime and runtime.process and runtime.process.returncode is None:
             process_running = True
@@ -3207,7 +3220,7 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         if is_snowluma_account(account):
             health = assess_snowluma_account_health(
                 account,
-                container_running=process_running,
+                container_running=container_running if account.get("snowluma_linux_docker") else process_running,
                 bot_connected=connected,
                 launch_issues=launch_issues,
                 include_host_deps=bool(account.get("snowluma_linux_docker")),

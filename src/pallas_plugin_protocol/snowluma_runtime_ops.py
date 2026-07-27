@@ -133,6 +133,45 @@ class SnowLumaRuntimeOpsMixin:
             display=snowluma_qr_capture_display(self._config),
         )
 
+    def resolve_snowluma_qq_pid_sync(
+        self: PallasProtocolService,
+        account: dict,
+        *,
+        home_pid_cache: dict[str, dict[str, int]] | None = None,
+    ) -> int | None:
+        """容器内该账号 QQ 主进程 pid；缓存 ``container -> {HOME: pid}`` 供列表复用。"""
+        if not account.get("snowluma_linux_docker"):
+            return None
+        self.annotate_account_snowluma_multi_qq(account)
+        from .snowluma_multi_qq import PRIMARY_QQ_HOME, list_qq_main_pids_by_home, resolve_account_qq_home
+        from .snowluma_qr_capture import resolve_snowluma_docker_container_name, snowluma_qr_capture_display
+
+        name = resolve_snowluma_docker_container_name(account)
+        qq = str(self._resolve_qq(account) or "").strip()
+        if not name or not qq.isdigit():
+            return None
+        display = snowluma_qr_capture_display(self._config)
+        mapping: dict[str, int]
+        if home_pid_cache is not None and name in home_pid_cache:
+            mapping = home_pid_cache[name]
+        else:
+            mapping = list_qq_main_pids_by_home(name, display=display)
+            if home_pid_cache is not None:
+                home_pid_cache[name] = mapping
+        home = resolve_account_qq_home(
+            qq,
+            member_uins=list(account.get("snowluma_member_uins") or []),
+            primary_uin=str(account.get("snowluma_primary_uin") or "").strip() or None,
+        )
+        pid = mapping.get(home)
+        if pid:
+            return pid
+        if home == PRIMARY_QQ_HOME:
+            for key, value in mapping.items():
+                if key in {PRIMARY_QQ_HOME, "/home/snowluma", ""}:
+                    return value
+        return None
+
     def resolve_snowluma_runtime(self: PallasProtocolService, account: dict) -> dict | None:
         rid = str(account.get(SNOWLUMA_RUNTIME_ID_KEY, "") or "").strip()
         if not rid:

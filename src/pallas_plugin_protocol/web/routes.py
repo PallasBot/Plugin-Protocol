@@ -870,7 +870,10 @@ def register_pallas_protocol_routes(
         x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
     ):
         _auth(x_pallas_protocol_token, token)
-        account = await manager.stop_account(account_id)
+        try:
+            account = await manager.stop_account(account_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
         if account is None:
             raise HTTPException(status_code=404, detail="账号不存在")
         return {"account": account}

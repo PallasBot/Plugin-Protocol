@@ -39,10 +39,15 @@ def test_stop_snowluma_qq_process_kills_resolved_pid(monkeypatch) -> None:
         del container, display
         calls.append(list(argv))
         joined = " ".join(argv)
-        if "cmdline" in joined:
+        if "cmdline" in joined or "/proc/" in joined:
             return "\n".join(f"{pid} {home}" for home, pid in homes.items())
-        if "kill" in joined:
+        if "KILL" in joined or "kill -KILL" in joined or "kill -9" in joined:
             homes.clear()
+            return ""
+        if "TERM" in joined or "kill -TERM" in joined:
+            # Electron 吞 TERM：进程仍在
+            return ""
+        if "kill" in joined:
             return ""
         return ""
 
@@ -58,7 +63,9 @@ def test_stop_snowluma_qq_process_kills_resolved_pid(monkeypatch) -> None:
     assert ok is True
     assert pid == 4242
     assert err == ""
-    assert any("kill" in " ".join(c) for c in calls)
+    joined_calls = [" ".join(c) for c in calls]
+    assert any("TERM" in j or "kill -TERM" in j for j in joined_calls)
+    assert any("KILL" in j or "kill -9" in j for j in joined_calls)
 
 
 def test_stop_snowluma_qq_process_noop_when_missing(monkeypatch) -> None:
@@ -76,3 +83,139 @@ def test_stop_snowluma_qq_process_noop_when_missing(monkeypatch) -> None:
     assert ok is True
     assert pid is None
     assert err == ""
+
+
+def test_stop_primary_qq_uses_supervisorctl(monkeypatch) -> None:
+    homes = {"/app": 9001}
+    supervisor_calls: list[tuple[str, str]] = []
+
+    def fake_exec(container: str, argv: list[str], *, display: str = ":1") -> str:
+        del container, display
+        joined = " ".join(argv)
+        if "cmdline" in joined or "/proc/" in joined:
+            return "\n".join(f"{pid} {home}" for home, pid in homes.items())
+        return ""
+
+    def fake_supervisor(
+        container: str,
+        action: str,
+        *,
+        program: str = "qq",
+        timeout: float = 30.0,
+    ) -> tuple[bool, str]:
+        del container, timeout
+        supervisor_calls.append((action, program))
+        if action == "stop":
+            homes.clear()
+        return True, "qq: stopped"
+
+    monkeypatch.setattr(multi, "_docker_exec_text", fake_exec)
+    monkeypatch.setattr(multi, "supervisorctl_qq", fake_supervisor)
+    monkeypatch.setattr(multi.time, "sleep", lambda _s: None)
+
+    ok, pid, err = multi.stop_snowluma_qq_process_for_uin(
+        "ctr",
+        "10001",
+        member_uins=["10001", "10002"],
+        primary_uin="10001",
+    )
+    assert ok is True
+    assert pid == 9001
+    assert err == ""
+    assert supervisor_calls == [("stop", "qq")]
+
+
+def test_stop_extra_qq_uses_supervisorctl_program(monkeypatch) -> None:
+    homes = {"/app/qq-homes/10002": 4242}
+    supervisor_calls: list[tuple[str, str]] = []
+
+    def fake_exec(container: str, argv: list[str], *, display: str = ":1") -> str:
+        del container, display
+        joined = " ".join(argv)
+        if "extra-qq.conf" in joined:
+            return '[program:qq-extra-1]\nenvironment=HOME="/app/qq-homes/10002",DISPLAY=":1"\n'
+        if "cmdline" in joined or "/proc/" in joined:
+            return "\n".join(f"{pid} {home}" for home, pid in homes.items())
+        return ""
+
+    def fake_supervisor(
+        container: str,
+        action: str,
+        *,
+        program: str = "qq",
+        timeout: float = 30.0,
+    ) -> tuple[bool, str]:
+        del container, timeout
+        supervisor_calls.append((action, program))
+        if action == "stop":
+            homes.clear()
+        return True, f"{program}: stopped"
+
+    monkeypatch.setattr(multi, "_docker_exec_text", fake_exec)
+    monkeypatch.setattr(multi, "supervisorctl_qq", fake_supervisor)
+    monkeypatch.setattr(multi.time, "sleep", lambda _s: None)
+
+    ok, pid, err = multi.stop_snowluma_qq_process_for_uin(
+        "ctr",
+        "10002",
+        member_uins=["10001", "10002"],
+        primary_uin="10001",
+    )
+    assert ok is True
+    assert pid == 4242
+    assert err == ""
+    assert supervisor_calls == [("stop", "qq-extra-1")]
+
+
+def test_ensure_primary_qq_uses_supervisorctl_start(monkeypatch) -> None:
+    homes: dict[str, int] = {}
+    supervisor_calls: list[tuple[str, str]] = []
+
+    def fake_exec(container: str, argv: list[str], *, display: str = ":1") -> str:
+        del container, display
+        joined = " ".join(argv)
+        if "cmdline" in joined or "/proc/" in joined:
+            return "\n".join(f"{pid} {home}" for home, pid in homes.items())
+        return ""
+
+    def fake_supervisor(
+        container: str,
+        action: str,
+        *,
+        program: str = "qq",
+        timeout: float = 30.0,
+    ) -> tuple[bool, str]:
+        del container, timeout
+        supervisor_calls.append((action, program))
+        if action == "start":
+            homes["/app"] = 8800
+        return True, "qq: started"
+
+    monkeypatch.setattr(multi, "_docker_exec_text", fake_exec)
+    monkeypatch.setattr(multi, "supervisorctl_qq", fake_supervisor)
+    monkeypatch.setattr(multi.time, "sleep", lambda _s: None)
+
+    ok, pid, err = multi.ensure_snowluma_qq_process_for_uin(
+        "ctr",
+        "10001",
+        member_uins=["10001"],
+        primary_uin="10001",
+    )
+    assert ok is True
+    assert pid == 8800
+    assert err == ""
+    assert supervisor_calls == [("start", "qq")]
+
+
+def test_list_qq_main_pids_ignores_crashpad(monkeypatch) -> None:
+    def fake_exec(container: str, argv: list[str], *, display: str = ":1") -> str:
+        del container, display
+        # 模拟容器内脚本输出：仅主 qq（crashpad 已在脚本侧过滤）
+        joined = " ".join(argv)
+        assert "*/qq" in joined or "qq\\ *" in joined or "qq)" in joined
+        return "487 /app/qq-homes/2927116873\n95436 /app/qq-homes/3234802804\n"
+
+    monkeypatch.setattr(multi, "_docker_exec_text", fake_exec)
+    mapping = multi.list_qq_main_pids_by_home("ctr")
+    assert mapping["/app/qq-homes/2927116873"] == 487
+    assert mapping["/app/qq-homes/3234802804"] == 95436
