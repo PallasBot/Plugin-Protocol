@@ -177,7 +177,11 @@ __all__ = [
     "ensure_snowluma_docker_image",
     "is_derived_snowluma_image",
     "normalize_snowluma_version_tag",
+    "prepare_snowluma_webui_bootstrap",
+    "resolve_snowluma_docker_bootstrap_password",
     "rebuild_snowluma_docker_image",
+    "snowluma_webui_credentials_settled",
+    "snowluma_webui_json_path",
     "resolve_snowluma_base_image",
     "resolve_snowluma_run_image",
     "resolve_snowluma_upstream_base",
@@ -271,6 +275,83 @@ def snowluma_docker_volume_paths_from_data_dir(
 def snowluma_docker_volume_paths(account: dict) -> tuple[Path, Path, Path]:
     ad = Path(str(account.get("account_data_dir", "")).strip()).resolve()
     return snowluma_docker_volume_paths_from_data_dir(ad)
+
+
+def prepare_snowluma_webui_bootstrap(data_root: Path) -> bool:
+    """删除未完成改密的 ``webui.json``，让 ``SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD`` 能生效。
+
+    已完成改密（``mustChangePassword=false``）的凭据文件会保留。
+    返回是否删除了文件。
+    """
+    path = snowluma_webui_json_path(data_root)
+    if path is None or not path.is_file():
+        return False
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        try:
+            path.unlink()
+        except OSError:
+            return False
+        return True
+    must_change = isinstance(raw, dict) and raw.get("mustChangePassword") is True
+    if not isinstance(raw, dict) or must_change:
+        try:
+            path.unlink()
+        except OSError:
+            return False
+        return True
+    return False
+
+
+def snowluma_webui_json_path(data_root: Path) -> Path | None:
+    raw = str(data_root or "").strip()
+    if not raw:
+        return None
+    data_dir, _, _ = snowluma_docker_volume_paths_from_data_dir(Path(raw))
+    return data_dir / "config" / "webui.json"
+
+
+def snowluma_webui_credentials_settled(data_root: Path) -> bool:
+    """``webui.json`` 已存在且不要求强制改密。"""
+    path = snowluma_webui_json_path(data_root)
+    if path is None or not path.is_file():
+        return False
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return False
+    return isinstance(raw, dict) and raw.get("mustChangePassword") is not True
+
+
+def resolve_snowluma_docker_bootstrap_password(
+    runtime: dict,
+    account: dict | None = None,
+) -> str:
+    """决定写入 ``SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD`` 的口令。
+
+    - 已有托管口令：直接用（并同步到 runtime/account）
+    - 尚无托管口令且 WebUI 凭据未落盘：生成新托管口令
+    - 凭据已落盘但无托管口令：不注入 bootstrap（避免用错密盖住现网）
+    """
+    from .snowluma_webui_client import ensure_snowluma_managed_webui_password
+
+    data_root = Path(str(runtime.get("data_dir", "") or "").strip())
+    existing = ""
+    for item in (runtime, account):
+        if not isinstance(item, dict):
+            continue
+        pwd = str(item.get("snowluma_managed_webui_password") or "").strip()
+        if pwd:
+            existing = pwd
+            break
+    if existing:
+        ensure_snowluma_managed_webui_password(runtime, account)
+        return existing
+    if snowluma_webui_credentials_settled(data_root):
+        return ""
+    pwd, _ = ensure_snowluma_managed_webui_password(runtime, account)
+    return pwd
 
 
 def clear_snowluma_login_state_for_uin(data_dir: Path, qq: str) -> int:
@@ -464,9 +545,10 @@ def build_snowluma_docker_run_argv_for_runtime(
         raise ValueError(msg)
 
     name = snowluma_docker_container_name_for_runtime(runtime)
-    data_root = Path(str(runtime.get("data_dir", "") or "").strip()).resolve()
-    if not str(runtime.get("data_dir", "") or "").strip():
+    data_root_raw = str(runtime.get("data_dir", "") or "").strip()
+    if not data_root_raw:
         raise ValueError("Runtime data_dir 缺失")
+    data_root = Path(data_root_raw)
     data_dir, cfg_dir, local_share = snowluma_docker_volume_paths_from_data_dir(data_root)
     shm = str(getattr(config, "pallas_protocol_snowluma_docker_shm_size", "") or "").strip() or "1g"
     vnc_pw = str(getattr(config, "pallas_protocol_snowluma_docker_vnc_passwd", "") or "").strip()
@@ -474,6 +556,9 @@ def build_snowluma_docker_run_argv_for_runtime(
     label_account = sanitize_docker_name_suffix(
         str(account_id_label or runtime.get("legacy_container_account_id") or rid)
     )
+
+    bootstrap_pwd = resolve_snowluma_docker_bootstrap_password(runtime, account)
+    prepare_snowluma_webui_bootstrap(data_root)
 
     argv: list[str] = [
         "run",
@@ -501,6 +586,8 @@ def build_snowluma_docker_run_argv_for_runtime(
         "SNOWLUMA_ACCEPT_EULA=1",
         "-e",
         "SNOWLUMA_ACCEPT_PRIVACY=1",
+        "-e",
+        "SNOWLUMA_HOOK_AUTOLOAD=1",
         "-v",
         f"{data_dir}:/app/snowluma-data",
         "-v",
@@ -514,6 +601,8 @@ def build_snowluma_docker_run_argv_for_runtime(
         "-p",
         f"{host_ws}:{in_ws}",
     ]
+    if bootstrap_pwd:
+        argv.extend(["-e", f"SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD={bootstrap_pwd}"])
     if vnc_pw:
         argv.extend(["-e", f"VNC_PASSWD={vnc_pw}"])
 

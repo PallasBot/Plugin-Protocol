@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 import types
@@ -98,7 +99,7 @@ def test_build_snowluma_docker_run_argv_for_runtime_falls_back_to_account_ports(
     assert "17101:3001" in argv
 
 
-def test_build_snowluma_docker_run_argv_includes_memory_limits() -> None:
+def test_build_snowluma_docker_run_argv_includes_memory_limits(tmp_path: Path) -> None:
     cfg = SimpleNamespace(
         pallas_protocol_snowluma_docker_image="motricseven7/snowluma:latest",
         pallas_protocol_snowluma_docker_internal_webui_port=5099,
@@ -118,7 +119,7 @@ def test_build_snowluma_docker_run_argv_includes_memory_limits() -> None:
         "webui_port": 6100,
         "snowluma_docker_host_onebot_http": 17100,
         "snowluma_docker_host_onebot_ws": 17101,
-        "account_data_dir": "/tmp/sl-test",
+        "account_data_dir": str(tmp_path),
     }
 
     def resolve_qq(acc: dict) -> str:
@@ -130,6 +131,8 @@ def test_build_snowluma_docker_run_argv_includes_memory_limits() -> None:
     assert "SYS_PTRACE" in argv
     assert "SNOWLUMA_ACCEPT_EULA=1" in argv
     assert "SNOWLUMA_ACCEPT_PRIVACY=1" in argv
+    assert "SNOWLUMA_HOOK_AUTOLOAD=1" in argv
+    assert any(str(item).startswith("SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD=") for item in argv)
     assert any("/docker/snowluma/qq-homes:/app/qq-homes" in str(item) for item in argv)
     assert not any(str(item).startswith("SNOWLUMA_EXTRA_QQ_HOMES=") for item in argv)
 
@@ -357,3 +360,54 @@ def test_clear_snowluma_login_state_preserves_snowluma_config(tmp_path: Path) ->
     assert not dot_config.exists()
     assert not dot_local_share.exists()
     assert not qr_cache.exists()
+
+
+def test_prepare_snowluma_webui_bootstrap_clears_must_change(tmp_path: Path) -> None:
+    prepare = snowluma_docker.prepare_snowluma_webui_bootstrap
+    path_fn = snowluma_docker.snowluma_webui_json_path
+    path = path_fn(tmp_path)
+    assert path is not None
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps({
+            "passwordHash": "a" * 128,
+            "passwordSalt": "b" * 32,
+            "mustChangePassword": True,
+            "generatedAt": "2026-01-01T00:00:00.000Z",
+            "updatedAt": "2026-01-01T00:00:00.000Z",
+        }),
+        encoding="utf-8",
+    )
+    assert prepare(tmp_path) is True
+    assert not path.exists()
+
+
+def test_resolve_bootstrap_skips_when_settled_without_managed(tmp_path: Path) -> None:
+    resolve = snowluma_docker.resolve_snowluma_docker_bootstrap_password
+    path = snowluma_docker.snowluma_webui_json_path(tmp_path)
+    assert path is not None
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps({
+            "passwordHash": "a" * 128,
+            "passwordSalt": "b" * 32,
+            "mustChangePassword": False,
+            "generatedAt": "2026-01-01T00:00:00.000Z",
+            "updatedAt": "2026-01-01T00:00:00.000Z",
+        }),
+        encoding="utf-8",
+    )
+    runtime = {"id": "sl-rt-x", "data_dir": str(tmp_path)}
+    assert resolve(runtime, {}) == ""
+
+
+def test_resolve_bootstrap_uses_managed_password(tmp_path: Path) -> None:
+    resolve = snowluma_docker.resolve_snowluma_docker_bootstrap_password
+    runtime = {
+        "id": "sl-rt-x",
+        "data_dir": str(tmp_path),
+        "snowluma_managed_webui_password": "Pa!managedXy9",
+    }
+    account: dict = {}
+    assert resolve(runtime, account) == "Pa!managedXy9"
+    assert account.get("snowluma_managed_webui_password") == "Pa!managedXy9"

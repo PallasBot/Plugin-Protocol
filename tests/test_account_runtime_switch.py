@@ -117,6 +117,18 @@ async def record_remove(service: PallasProtocolService, account: dict) -> None:
     service.calls.append("remove-containers")
 
 
+async def record_stop_runtime(service: PallasProtocolService, runtime_id: str) -> None:
+    service.calls.append(f"stop-runtime:{runtime_id}")
+
+
+async def record_delete_runtime(service: PallasProtocolService, runtime_id: str, *, force: bool = False) -> None:
+    service.calls.append(f"delete-runtime:{runtime_id}")
+    try:
+        service._sl_runtime_registry.delete(runtime_id)
+    except KeyError:
+        pass
+
+
 async def record_start(service: PallasProtocolService, account_id: str) -> None:
     service.started.append(account_id)
 
@@ -151,6 +163,8 @@ def make_service(
         "member_account_ids": ["10001"],
     }
     service.stop_account = MethodType(record_stop, service)
+    service.stop_snowluma_runtime = MethodType(record_stop_runtime, service)
+    service.delete_snowluma_runtime = MethodType(record_delete_runtime, service)
     service._remove_both_linux_docker_container_names_for_account = MethodType(record_remove, service)
     service._save_accounts = MethodType(lambda self: self.calls.append("save"), service)
     service.start_account = MethodType(record_start, service)
@@ -356,6 +370,9 @@ async def test_switch_account_from_shared_snowluma_runtime_keeps_shared_containe
     assert result["account"]["protocol_backend"] == DEFAULT_PROTOCOL_BACKEND
     assert account["account_data_dir"] == "/tmp/napcat-data"
     assert service.started == ["10001"]
+    assert not any(call.startswith("delete-runtime:") for call in service.calls)
+    assert not any(call.startswith("stop-runtime:") for call in service.calls)
+    assert service._sl_runtime_registry.runtime is not None
 
 
 @pytest.mark.asyncio
@@ -370,10 +387,36 @@ async def test_switching_between_snowluma_runtimes_does_not_capture_snow_data_as
     await service.switch_account_runtime(
         "10001", {"protocol_backend": SNOWLUMA_PROTOCOL_BACKEND, "runtime_mode": "new"}
     )
+    assert "delete-runtime:sl-rt-old" in service.calls
+    assert service._sl_runtime_registry.deleted == ["sl-rt-old"]
+
     await service.switch_account_runtime("10001", {"protocol_backend": DEFAULT_PROTOCOL_BACKEND})
 
     assert "napcat_account_data_dir" not in account
     assert account["account_data_dir"] == ""
+
+
+@pytest.mark.asyncio
+async def test_switch_from_exclusive_snowluma_stops_and_removes_old_container() -> None:
+    runtime = {"id": "sl-rt-old", "data_dir": "/tmp/snow-old", "webui_port": 6200}
+    service, account = make_service(runtime)
+    account.update({
+        "protocol_backend": SNOWLUMA_PROTOCOL_BACKEND,
+        "snowluma_runtime_id": runtime["id"],
+        "snowluma_linux_docker": True,
+        "account_data_dir": runtime["data_dir"],
+    })
+
+    await service.switch_account_runtime("10001", {"protocol_backend": DEFAULT_PROTOCOL_BACKEND})
+
+    assert service.calls[:4] == [
+        "stop",
+        "stop-runtime:sl-rt-old",
+        "remove-containers",
+        "defaults",
+    ]
+    assert "delete-runtime:sl-rt-old" in service.calls
+    assert service._sl_runtime_registry.deleted == ["sl-rt-old"]
 
 
 @pytest.mark.asyncio

@@ -686,9 +686,18 @@ def register_pallas_protocol_routes(
     async def list_snowluma_runtimes(
         token: str | None = Query(default=None),
         x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
+        lite: bool = Query(
+            default=False,
+            description="跳过进程/Docker 探测，仅返回注册表与成员（选 Runtime 用）",
+        ),
     ):
         _auth(x_pallas_protocol_token, token)
-        return {"runtimes": await asyncio.to_thread(manager.list_snowluma_runtimes)}
+        return {
+            "runtimes": await asyncio.to_thread(
+                manager.list_snowluma_runtimes,
+                include_process=not lite,
+            )
+        }
 
     @app.get(f"{base}/api/snowluma/runtimes/{{runtime_id}}")
     async def get_snowluma_runtime(

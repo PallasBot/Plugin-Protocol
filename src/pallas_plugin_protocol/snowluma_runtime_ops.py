@@ -116,6 +116,14 @@ class SnowLumaRuntimeOpsMixin:
         return self._sl_runtime_registry.get(rid)
 
     def bind_account_to_snowluma_runtime(self: PallasProtocolService, account: dict, runtime: dict) -> None:
+        from .snowluma_webui_client import ensure_snowluma_managed_webui_password
+
+        # 仅同步已有托管口令，不在此凭空生成（避免盖住已落盘的 WebUI 凭据）
+        if (
+            str(runtime.get("snowluma_managed_webui_password") or "").strip()
+            or str(account.get("snowluma_managed_webui_password") or "").strip()
+        ):
+            ensure_snowluma_managed_webui_password(runtime, account)
         account[SNOWLUMA_RUNTIME_ID_KEY] = runtime["id"]
         account["account_data_dir"] = str(runtime.get("data_dir") or "")
         if runtime.get("webui_port") is not None:
@@ -158,10 +166,44 @@ class SnowLumaRuntimeOpsMixin:
         key = snowluma_process_track_key(runtime_id)
         return self._runtime(key)
 
-    def list_snowluma_runtimes(self: PallasProtocolService) -> list[dict]:
-        out: list[dict] = [
-            self._compose_snowluma_runtime_state(item) for item in self._sl_runtime_registry.list_runtimes()
-        ]
+    def list_snowluma_runtimes(
+        self: PallasProtocolService,
+        *,
+        include_process: bool = True,
+    ) -> list[dict]:
+        """列出 Runtime。
+
+        include_process=False 时跳过 docker/进程探测（选 Runtime 的 Combobox 用），
+        避免每个 Runtime 一次 docker inspect。
+        """
+        members_by_rid: dict[str, list[str]] = {}
+        for aid, acc in self._accounts.items():
+            rid = str(acc.get(SNOWLUMA_RUNTIME_ID_KEY, "") or "").strip()
+            if rid:
+                members_by_rid.setdefault(rid, []).append(aid)
+
+        snow_mode = ""
+        if include_process:
+            profile = self.runtime_profile()
+            snow_mode = str(profile.get("snowluma_runtime_mode") or "").strip().lower()
+
+        out: list[dict] = []
+        for item in self._sl_runtime_registry.list_runtimes():
+            rid = str(item.get("id", ""))
+            members = members_by_rid.get(rid, [])
+            process_running = False
+            if include_process:
+                process_running = self._snowluma_runtime_process_running(
+                    item,
+                    members=members,
+                    snow_mode=snow_mode,
+                )
+            out.append({
+                **item,
+                "member_account_ids": members,
+                "member_count": len(members),
+                "process_running": process_running,
+            })
         return out
 
     def get_snowluma_runtime(self: PallasProtocolService, runtime_id: str) -> dict | None:
@@ -173,7 +215,7 @@ class SnowLumaRuntimeOpsMixin:
     def _compose_snowluma_runtime_state(self: PallasProtocolService, runtime: dict) -> dict:
         rid = str(runtime.get("id", ""))
         members = self.snowluma_runtime_members(rid)
-        process_running = self._snowluma_runtime_process_running(runtime)
+        process_running = self._snowluma_runtime_process_running(runtime, members=members)
         return {
             **runtime,
             "member_account_ids": members,
@@ -181,26 +223,38 @@ class SnowLumaRuntimeOpsMixin:
             "process_running": process_running,
         }
 
-    def _snowluma_runtime_process_running(self: PallasProtocolService, runtime: dict) -> bool:
+    def _snowluma_runtime_process_running(
+        self: PallasProtocolService,
+        runtime: dict,
+        *,
+        members: list[str] | None = None,
+        snow_mode: str | None = None,
+    ) -> bool:
         from .snowluma_docker import (
             snowluma_docker_container_name_for_runtime,
             snowluma_docker_container_running_sync,
         )
 
-        profile = self.runtime_profile()
-        mode = str(profile.get("snowluma_runtime_mode") or "").strip().lower()
+        rid = str(runtime.get("id", ""))
+        member_ids = members if members is not None else self.snowluma_runtime_members(rid)
+        mode = snow_mode
+        if mode is None:
+            profile = self.runtime_profile()
+            mode = str(profile.get("snowluma_runtime_mode") or "").strip().lower()
         if mode == "docker" or any(
-            bool((self._accounts.get(aid) or {}).get("snowluma_linux_docker"))
-            for aid in self.snowluma_runtime_members(str(runtime.get("id", "")))
+            bool((self._accounts.get(aid) or {}).get("snowluma_linux_docker")) for aid in member_ids
         ):
             name = snowluma_docker_container_name_for_runtime(runtime)
             return snowluma_docker_container_running_sync(name)
-        track = self._runtimes.get(snowluma_process_track_key(str(runtime.get("id", ""))))
+        track = self._runtimes.get(snowluma_process_track_key(rid))
         return bool(track and track.process and track.process.returncode is None)
 
     def create_snowluma_runtime(self: PallasProtocolService, payload: dict) -> dict:
         if "webui_port" not in payload or payload.get("webui_port") in (None, ""):
             payload = {**payload, "webui_port": self._next_free_webui_port()}
+        from .snowluma_webui_client import ensure_snowluma_managed_webui_password
+
+        ensure_snowluma_managed_webui_password(payload)
         item = self._sl_runtime_registry.create(payload)
         return self._compose_snowluma_runtime_state(item)
 
@@ -274,12 +328,15 @@ class SnowLumaRuntimeOpsMixin:
             be.sync_all_configs(acc, self._resolve_qq)
             try:
                 await self.ensure_snowluma_qq_process_for_account(aid, acc)
-            except Exception:
-                pass
-            try:
-                await self.snowluma_inject_hook_via_webui(aid)
-            except Exception:
-                pass
+            except Exception as err:
+                from nonebot import logger
+
+                logger.warning(
+                    "Pallas-Bot 协议端: 共享 Runtime 副号 {} 拉起 QQ 失败：{}",
+                    aid,
+                    err,
+                )
+            # Hook 交给 SnowLuma SNOWLUMA_HOOK_AUTOLOAD，避免 WebUI 登录撞 429
             self.schedule_snowluma_auto_quick_login(aid)
         self._save_accounts()
         return self.get_snowluma_runtime(runtime_id) or {}

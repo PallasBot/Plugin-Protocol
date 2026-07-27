@@ -1,15 +1,50 @@
 from __future__ import annotations
 
+import importlib.util
 import json
+import sys
+import types
+from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 
-from pallas_plugin_protocol.snowluma_webui_client import (
-    generate_snowluma_managed_webui_password,
-    snowluma_ensure_webui_session,
-)
+_ROOT = Path(__file__).resolve().parents[1] / "src" / "pallas_plugin_protocol"
+_PKG = "pallas_plugin_protocol_webui_client_test"
+
+
+def load_module(qualified: str, filename: str):
+    path = _ROOT / filename
+    spec = importlib.util.spec_from_file_location(qualified, path)
+    assert spec is not None
+    assert spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[qualified] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+if _PKG not in sys.modules:
+    pkg = types.ModuleType(_PKG)
+    pkg.__path__ = [str(_ROOT)]
+    sys.modules[_PKG] = pkg
+
+# snowluma_webui_client imports snowluma_config at call-time for password candidates
+for name, file in (
+    ("docker_cli", "docker_cli.py"),
+    ("docker_onebot_host", "docker_onebot_host.py"),
+    ("linux_docker", "linux_docker.py"),
+    ("snowluma_docker", "snowluma_docker.py"),
+    ("snowluma_config", "snowluma_config.py"),
+):
+    load_module(f"{_PKG}.{name}", file)
+
+webui_client = load_module(f"{_PKG}.snowluma_webui_client", "snowluma_webui_client.py")
+generate_snowluma_managed_webui_password = webui_client.generate_snowluma_managed_webui_password
+snowluma_ensure_webui_session = webui_client.snowluma_ensure_webui_session
+snowluma_webui_login = webui_client.snowluma_webui_login
+snowluma_webui_password_candidates = webui_client.snowluma_webui_password_candidates
 
 
 def test_generate_snowluma_managed_webui_password_strength() -> None:
@@ -19,6 +54,30 @@ def test_generate_snowluma_managed_webui_password_strength() -> None:
     assert any(c.islower() for c in pwd)
     assert any(not c.isalnum() for c in pwd)
     assert " " not in pwd
+
+
+@pytest.mark.asyncio
+async def test_snowluma_webui_login_maps_429() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/login":
+            return httpx.Response(
+                429,
+                json={"success": False, "message": "登录尝试过多，请 900 秒后重试"},
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport, base_url="http://sl.test") as client:
+        with pytest.raises(ValueError, match="429"):
+            await snowluma_webui_login(client, "http://sl.test", "wrong")
+
+
+def test_password_candidates_prefer_managed_only() -> None:
+    account = {"snowluma_managed_webui_password": "Pa!managedXy9"}
+    assert snowluma_webui_password_candidates(
+        account,
+        ["initial credentials: user=admin password=af7c7aaa85693d30"],
+    ) == ["Pa!managedXy9"]
 
 
 @pytest.mark.asyncio
@@ -87,9 +146,7 @@ async def test_snowluma_ensure_webui_session_rotates_password() -> None:
 
     transport = httpx.MockTransport(handler)
     account: dict[str, Any] = {}
-    async with httpx.AsyncClient(
-        transport=transport, base_url="http://sl.test"
-    ) as client:
+    async with httpx.AsyncClient(transport=transport, base_url="http://sl.test") as client:
         headers, dirty = await snowluma_ensure_webui_session(
             client,
             "http://sl.test",

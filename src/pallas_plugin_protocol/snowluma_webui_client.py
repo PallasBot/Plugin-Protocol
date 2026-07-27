@@ -51,17 +51,39 @@ def generate_snowluma_managed_webui_password() -> str:
     return f"Pa!{core}Xy9"
 
 
+def ensure_snowluma_managed_webui_password(*targets: dict | None) -> tuple[str, bool]:
+    """确保目标对象有同一托管口令；缺则生成。返回 ``(password, dirty)``。"""
+    items = [item for item in targets if isinstance(item, dict)]
+    existing = ""
+    for item in items:
+        pwd = str(item.get("snowluma_managed_webui_password") or "").strip()
+        if pwd:
+            existing = pwd
+            break
+    dirty = False
+    if not existing:
+        existing = generate_snowluma_managed_webui_password()
+        dirty = True
+    for item in items:
+        if str(item.get("snowluma_managed_webui_password") or "").strip() != existing:
+            item["snowluma_managed_webui_password"] = existing
+            dirty = True
+    return existing, dirty
+
+
 def snowluma_webui_password_candidates(account: dict, log_lines: list[str] | None) -> list[str]:
+    """登录候选口令。
+
+    有托管口令时只试托管口令，避免再用过期日志初始密码连环试错触发 429。
+    无托管口令时才回退解析日志 / runtime.json。
+    """
     from .snowluma_config import resolve_snowluma_webui_temp_password
 
-    out: list[str] = []
     managed = str(account.get("snowluma_managed_webui_password") or "").strip()
     if managed:
-        out.append(managed)
+        return [managed]
     bootstrap = resolve_snowluma_webui_temp_password(account, log_lines)
-    if bootstrap and bootstrap not in out:
-        out.append(bootstrap)
-    return out
+    return [bootstrap] if bootstrap else []
 
 
 def snowluma_webui_403_detail(response: httpx.Response) -> str:
@@ -138,12 +160,33 @@ async def snowluma_accept_webui_consent_if_needed(
     return True
 
 
+def snowluma_webui_login_error_message(response: httpx.Response) -> str:
+    try:
+        body = response.json()
+    except Exception:
+        body = {}
+    if isinstance(body, dict):
+        msg = str(body.get("message") or body.get("status") or "").strip()
+        if msg:
+            return msg
+    return (response.text or "").strip() or f"HTTP {response.status_code}"
+
+
 async def snowluma_webui_login(client: httpx.AsyncClient, base: str, password: str) -> SnowlumaWebuiLogin:
     lr = await client.post(
         f"{base}/api/login",
         json={"username": "admin", "password": password},
     )
-    lr.raise_for_status()
+    if lr.status_code == 429:
+        detail = snowluma_webui_login_error_message(lr)
+        raise ValueError(
+            "SnowLuma WebUI 登录被限流（429）。"
+            f"{detail + '。' if detail else ''}"
+            "共用 Runtime 时请稍后再试，勿连续点注入。"
+        )
+    if lr.status_code >= 400:
+        detail = snowluma_webui_login_error_message(lr)
+        raise ValueError(f"SnowLuma WebUI 登录失败: {detail}")
     login_body = lr.json()
     if not isinstance(login_body, dict) or not login_body.get("success"):
         msg = ""
@@ -266,6 +309,7 @@ async def snowluma_fetch_processes(
 
 __all__ = [
     "SnowlumaWebuiLogin",
+    "ensure_snowluma_managed_webui_password",
     "generate_snowluma_managed_webui_password",
     "snowluma_accept_webui_consent_if_needed",
     "snowluma_change_webui_password",
@@ -273,6 +317,7 @@ __all__ = [
     "snowluma_ensure_webui_session",
     "snowluma_fetch_processes",
     "snowluma_webui_login",
+    "snowluma_webui_login_error_message",
     "snowluma_webui_password_candidates",
     "write_snowluma_consent_record",
 ]

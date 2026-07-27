@@ -1039,18 +1039,15 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
                     )
                     if not connected:
                         logger.warning(
-                            "Pallas-Bot 协议端: {} 一键登录后等待 Bot 连上超时，跳过 inject",
+                            "Pallas-Bot 协议端: {} 一键登录后等待 Bot 连上超时",
                             account_id,
                         )
                         return
-                    try:
-                        await self.snowluma_inject_hook_via_webui(account_id)
-                    except (KeyError, ValueError) as err:
-                        logger.warning(
-                            "Pallas-Bot 协议端: {} 自动 inject hook 跳过：{}",
-                            account_id,
-                            err,
-                        )
+                    # Hook 由 SnowLuma HOOK_AUTOLOAD 负责；勿再经 WebUI 登录注入（易 429）
+                    logger.info(
+                        "Pallas-Bot 协议端: {} 一键登录后 Bot 已连接（依赖 SnowLuma 自动注入 Hook）",
+                        account_id,
+                    )
                 elif mode == "qrcode":
                     logger.info(
                         "Pallas-Bot 协议端: {} 截到登录二维码（需扫码），未自动点登录",
@@ -1860,9 +1857,12 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
             str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY) or DEFAULT_PROTOCOL_BACKEND).strip().lower()
             or DEFAULT_PROTOCOL_BACKEND
         )
-        shared_snowluma_runtime = old_backend == SNOWLUMA_PROTOCOL_BACKEND and self.account_shares_snowluma_runtime(
-            account
+        old_sl_runtime_id = (
+            str(account.get(SNOWLUMA_RUNTIME_ID_KEY, "") or "").strip()
+            if old_backend == SNOWLUMA_PROTOCOL_BACKEND
+            else ""
         )
+        shared_snowluma_runtime = bool(old_sl_runtime_id and self.account_shares_snowluma_runtime(account))
         original_account = copy.deepcopy(account)
         runtime: dict | None = None
         created_runtime_id = ""
@@ -1875,7 +1875,14 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
 
         try:
             await self.stop_account(account_id)
-            if not shared_snowluma_runtime:
+            if old_sl_runtime_id and not shared_snowluma_runtime:
+                # 独占旧 Runtime：先停再删容器（stop_account 对 SnowLuma 挂载账号是 no-op）
+                try:
+                    await self.stop_snowluma_runtime(old_sl_runtime_id)
+                except Exception:
+                    pass
+                await self._remove_both_linux_docker_container_names_for_account(account)
+            elif not shared_snowluma_runtime:
                 await self._remove_both_linux_docker_container_names_for_account(account)
             if runtime:
                 if old_backend == DEFAULT_PROTOCOL_BACKEND:
@@ -1917,6 +1924,18 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
             account["updated_at"] = datetime.now(UTC).isoformat()
             self._save_accounts()
             await self.start_account(account_id)
+            # 换挂后旧 Runtime 已无成员：删注册表与残留容器（共享且仍有其它号时不会进这里）
+            if old_sl_runtime_id and not self.snowluma_runtime_members(old_sl_runtime_id):
+                try:
+                    await self.delete_snowluma_runtime(old_sl_runtime_id)
+                except Exception as err:
+                    from nonebot import logger
+
+                    logger.warning(
+                        "Pallas-Bot 协议端: 切换后清理空闲 SnowLuma Runtime {} 失败：{}",
+                        old_sl_runtime_id,
+                        err,
+                    )
             return {
                 "account": self._compose_account_state(account_id, account),
                 "runtime": (self._compose_snowluma_runtime_state(runtime) if runtime else None),
@@ -2078,18 +2097,10 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
                     except Exception:
                         pass
                     self.schedule_snowluma_auto_quick_login(account_id)
-                    try:
-                        await self.snowluma_inject_hook_via_webui(account_id)
-                    except Exception:
-                        pass
                     return self._compose_account_state(account_id, account)
                 return await self._start_account_snowluma_linux_docker(account_id, account, runtime)
             if runtime.process and runtime.process.returncode is None:
                 if str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY) or "").strip().lower() == SNOWLUMA_PROTOCOL_BACKEND:
-                    try:
-                        await self.snowluma_inject_hook_via_webui(account_id)
-                    except Exception:
-                        pass
                     self.schedule_snowluma_auto_quick_login(account_id)
                 return self._compose_account_state(account_id, account)
             command = str(account.get("command", "")).strip()
@@ -2339,6 +2350,17 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         be.apply_defaults(account, self._resolve_qq)
         self.sync_runtime_ports_from_account(account)
         sl_runtime = self.resolve_snowluma_runtime(account)
+        if sl_runtime:
+            from .snowluma_docker import resolve_snowluma_docker_bootstrap_password
+
+            bootstrap = resolve_snowluma_docker_bootstrap_password(sl_runtime, account)
+            if bootstrap:
+                self._sl_runtime_registry.update(
+                    sl_runtime["id"],
+                    {"snowluma_managed_webui_password": bootstrap},
+                )
+                account["snowluma_managed_webui_password"] = bootstrap
+                self._save_accounts()
         self.annotate_account_snowluma_multi_qq(account)
         member_uins = list(account.get("snowluma_member_uins") or [])
         primary_uin = str(account.get("snowluma_primary_uin") or "").strip() or None
@@ -2365,6 +2387,8 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
                 member_uins=member_uins,
                 primary_uin=primary_uin,
             )
+        self.sync_runtime_ports_from_account(account)
+        self._save_accounts()
         args = [str(x) for x in (account.get("args") or [])]
         launch_issues = be.check_launch_issues(account, self._resolve_qq)
         if launch_issues:
@@ -2858,11 +2882,7 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
                 meta["login_mode"] = "quick_login"
                 meta["message"] = str(restored.get("message") or "")
                 meta["available"] = False
-                try:
-                    inject = await self.snowluma_inject_hook_via_webui(account_id)
-                    meta["inject_hook"] = inject
-                except (KeyError, ValueError) as err:
-                    meta["inject_hook_error"] = str(err)
+                # Hook 由 SnowLuma HOOK_AUTOLOAD 负责
                 return meta
             if path is None or not path.is_file():
                 path = await wait_and_capture_snowluma_qrcode(
@@ -2883,11 +2903,6 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
                     meta["login_mode"] = "quick_login"
                     meta["message"] = "已点击 QQ「登录」按钮，请稍候确认账号上线"
                     meta["available"] = False
-                    try:
-                        inject = await self.snowluma_inject_hook_via_webui(account_id)
-                        meta["inject_hook"] = inject
-                    except (KeyError, ValueError) as err:
-                        meta["inject_hook_error"] = str(err)
                     return meta
                 raise ValueError(str(restored.get("message")) or "刷新后仍未识别到有效二维码，且无法自动点击「登录」")
         elif bk == DEFAULT_PROTOCOL_BACKEND or is_napcat_account(account):
