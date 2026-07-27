@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+- feat(snowluma): 停账号会停止该号 QQ 主进程（不拆共享 Runtime 容器）
+
 ## [4.0.47] - 2026-07-28
 
 - feat(snowluma): Docker 注入 `SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD` + `SNOWLUMA_HOOK_AUTOLOAD=1`，固定 WebUI 口令并默认交给上游自动注入 Hook

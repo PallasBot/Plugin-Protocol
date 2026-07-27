@@ -272,6 +272,56 @@ def ensure_snowluma_qq_process_for_uin(
     return False, None, f"未能在 HOME={home} 拉起 QQ 进程"
 
 
+def stop_snowluma_qq_process_for_uin(
+    container_name: str,
+    uin: str,
+    *,
+    member_uins: list[str] | None = None,
+    primary_uin: str | None = None,
+    display: str = DEFAULT_DISPLAY,
+    run_exec_text: Any | None = None,
+) -> tuple[bool, int | None, str]:
+    """停止指定 UIN 的 QQ 主进程；不影响容器与其它号。"""
+    text_runner = run_exec_text or _docker_exec_text
+    target = str(uin or "").strip()
+    if not target.isdigit():
+        return False, None, "QQ 无效"
+    pid = resolve_qq_main_pid_for_uin(
+        container_name,
+        target,
+        member_uins=member_uins,
+        primary_uin=primary_uin,
+        display=display,
+        run_exec_text=text_runner,
+    )
+    if not pid:
+        return True, None, ""
+    raw = text_runner(
+        container_name,
+        ["sh", "-c", f"kill {pid} 2>/dev/null || kill -9 {pid} 2>/dev/null || true"],
+        display=display,
+    )
+    # kill 成功时 stdout 常为空；再查一次确认
+    time.sleep(0.4)
+    still = resolve_qq_main_pid_for_uin(
+        container_name,
+        target,
+        member_uins=member_uins,
+        primary_uin=primary_uin,
+        display=display,
+        run_exec_text=text_runner,
+    )
+    if still and still == pid:
+        return False, pid, (raw[-200:] if raw else f"未能停止 QQ 进程 pid={pid}")
+    logger.info(
+        "SnowLuma 容器 {} 已停止 UIN {} 的 QQ 进程 pid={}",
+        container_name,
+        target,
+        pid,
+    )
+    return True, pid, ""
+
+
 def window_net_wm_pid(
     container_name: str,
     window_id: str,
@@ -308,5 +358,6 @@ __all__ = [
     "snowluma_qq_home_container_path",
     "snowluma_qq_home_host_path",
     "snowluma_qq_homes_host_root",
+    "stop_snowluma_qq_process_for_uin",
     "window_net_wm_pid",
 ]

@@ -2521,7 +2521,7 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         account = self._accounts.get(account_id)
         if account is None:
             return None
-        # SnowLuma：停账号不拆共享 Runtime；整 Runtime 用 stop_snowluma_runtime
+        # SnowLuma：停账号只停该号 QQ，不拆共享 Runtime；整 Runtime 用 stop_snowluma_runtime
         if (
             str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY) or "").strip().lower() == SNOWLUMA_PROTOCOL_BACKEND
             and str(account.get(SNOWLUMA_RUNTIME_ID_KEY, "") or "").strip()
@@ -2529,6 +2529,25 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
             pending = self._snowluma_auto_login_tasks.pop(account_id, None)
             if pending is not None and not pending.done():
                 pending.cancel()
+            if account.get("snowluma_linux_docker"):
+                try:
+                    ok, _pid, err = await self.stop_snowluma_qq_process_for_account(account_id, account)
+                    if not ok and err:
+                        from nonebot import logger
+
+                        logger.warning(
+                            "Pallas-Bot 协议端: 停止账号 {} 的 QQ 进程失败：{}",
+                            account_id,
+                            err,
+                        )
+                except Exception as err:
+                    from nonebot import logger
+
+                    logger.warning(
+                        "Pallas-Bot 协议端: 停止账号 {} 的 QQ 进程异常：{}",
+                        account_id,
+                        err,
+                    )
             return self._compose_account_state(account_id, account)
         runtime = self._runtimes.get(account_id)
         if account.get("napcat_linux_docker") or account.get("snowluma_linux_docker"):

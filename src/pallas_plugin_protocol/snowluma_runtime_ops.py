@@ -109,6 +109,30 @@ class SnowLumaRuntimeOpsMixin:
         )
         return ok, pid, err
 
+    async def stop_snowluma_qq_process_for_account(
+        self: PallasProtocolService,
+        account_id: str,
+        account: dict | None = None,
+    ) -> tuple[bool, int | None, str]:
+        """仅停该账号对应 QQ 主进程，不拆共享 Runtime 容器。"""
+        acc = account or self._accounts.get(account_id)
+        if not acc or not acc.get("snowluma_linux_docker"):
+            return False, None, "非 SnowLuma Docker 账号"
+        self.annotate_account_snowluma_multi_qq(acc)
+        from .snowluma_multi_qq import stop_snowluma_qq_process_for_uin
+        from .snowluma_qr_capture import resolve_snowluma_docker_container_name, snowluma_qr_capture_display
+
+        name = resolve_snowluma_docker_container_name(acc)
+        qq = str(self._resolve_qq(acc) or "").strip()
+        return await asyncio.to_thread(
+            stop_snowluma_qq_process_for_uin,
+            name,
+            qq,
+            member_uins=list(acc.get("snowluma_member_uins") or []),
+            primary_uin=str(acc.get("snowluma_primary_uin") or "").strip() or None,
+            display=snowluma_qr_capture_display(self._config),
+        )
+
     def resolve_snowluma_runtime(self: PallasProtocolService, account: dict) -> dict | None:
         rid = str(account.get(SNOWLUMA_RUNTIME_ID_KEY, "") or "").strip()
         if not rid:
