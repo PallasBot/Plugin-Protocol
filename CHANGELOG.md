@@ -5,7 +5,24 @@
 
 ## [Unreleased]
 
+## [4.0.48] - 2026-07-28
+
+### 更新公告
+
+- 协议账号「停止」只停该号 QQ，不拆共享 Runtime 容器
+- 主号 / 挂载副号均经 supervisord 真正停住，避免 toast 已停但进程立刻被拉起
+- 卡片「运行中」按该号 QQ 进程判断，不再把容器还在当成账号还在跑
+
+### Added
+
 - feat(snowluma): 停账号会停止该号 QQ 主进程（不拆共享 Runtime 容器）
+
+### Fixed
+
+- fix(snowluma): 停 QQ 时 SIGTERM 被 Electron 吞掉仍返回成功，改为确认后补 SIGKILL；主进程匹配排除 crashpad
+- fix(snowluma): 主号 QQ 经 `supervisorctl stop/start qq` 启停，避免 supervisord `autorestart` 把刚停的进程立刻拉起
+- fix(snowluma): 共享 Runtime 副号（`qq-extra-N`）同样走 supervisorctl，修复挂载号停不掉/立刻被拉起
+- fix(snowluma): 账号 `process_running` 按该号 QQ 进程判断，不再把共享 Runtime 容器在跑当成仍运行中
 
 ## [4.0.47] - 2026-07-28
 
