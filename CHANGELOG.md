@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+## [4.0.50] - 2026-07-28
+
+### 更新公告
+
+- SnowLuma Docker 默认内存上限改为 2g、memory+swap 改为 3g，减轻 QQ 顶满 1g 后换页狂读盘
+
+### Changed
+
+- chore(snowluma): 默认 `pallas_protocol_snowluma_docker_memory_limit/swap` 由 1g/1536m 调整为 2g/3g
+
 ## [4.0.49] - 2026-07-28
 
 ### 更新公告
