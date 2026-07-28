@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+## [4.0.49] - 2026-07-28
+
+### 更新公告
+
+- 停止账号时，若 supervisor 已停但 QQ `--relaunch` 孤儿还在，会继续强制结束，不再误报「进程仍在」
+
+### Fixed
+
+- fix(snowluma): `supervisorctl stop` 后补杀 `--relaunch` 孤儿 QQ，避免停止失败
+
 ## [4.0.48] - 2026-07-28
 
 ### 更新公告
