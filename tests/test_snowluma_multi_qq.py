@@ -125,6 +125,55 @@ def test_stop_primary_qq_uses_supervisorctl(monkeypatch) -> None:
     assert supervisor_calls == [("stop", "qq")]
 
 
+def test_stop_supervisorctl_then_kills_relaunch_orphan(monkeypatch) -> None:
+    """supervisor 已 STOPPED，但 QQ --relaunch 孤儿仍在时，应补刀成功。"""
+    homes = {"/app": 9001}
+    supervisor_calls: list[tuple[str, str]] = []
+    kill_calls: list[str] = []
+
+    def fake_exec(container: str, argv: list[str], *, display: str = ":1") -> str:
+        del container, display
+        joined = " ".join(argv)
+        if "cmdline" in joined or "/proc/" in joined:
+            return "\n".join(f"{pid} {home}" for home, pid in homes.items())
+        if "kill" in joined:
+            kill_calls.append(joined)
+            if "KILL" in joined or "kill -KILL" in joined or "kill -9" in joined:
+                homes.clear()
+        return ""
+
+    def fake_supervisor(
+        container: str,
+        action: str,
+        *,
+        program: str = "qq",
+        timeout: float = 30.0,
+    ) -> tuple[bool, str]:
+        del container, timeout
+        supervisor_calls.append((action, program))
+        # supervisorctl 只卸掉自己管的 pid；relaunch 孤儿换成新 pid 仍占 HOME=/app
+        if action == "stop":
+            homes["/app"] = 43800
+        return True, "qq: stopped"
+
+    monkeypatch.setattr(multi, "_docker_exec_text", fake_exec)
+    monkeypatch.setattr(multi, "supervisorctl_qq", fake_supervisor)
+    monkeypatch.setattr(multi.time, "sleep", lambda _s: None)
+
+    ok, pid, err = multi.stop_snowluma_qq_process_for_uin(
+        "ctr",
+        "10001",
+        member_uins=["10001"],
+        primary_uin="10001",
+    )
+    assert ok is True
+    assert pid == 9001
+    assert err == ""
+    assert supervisor_calls == [("stop", "qq")]
+    assert any("43800" in c for c in kill_calls)
+    assert homes == {}
+
+
 def test_stop_extra_qq_uses_supervisorctl_program(monkeypatch) -> None:
     homes = {"/app/qq-homes/10002": 4242}
     supervisor_calls: list[tuple[str, str]] = []

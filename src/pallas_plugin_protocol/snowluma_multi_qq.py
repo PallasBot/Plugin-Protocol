@@ -390,6 +390,33 @@ def ensure_snowluma_qq_process_for_uin(
     return False, None, f"未能在 HOME={home} 拉起 QQ 进程"
 
 
+def _kill_qq_main_pid(
+    container_name: str,
+    pid: int,
+    *,
+    display: str = DEFAULT_DISPLAY,
+    run_exec_text: Any | None = None,
+) -> None:
+    """对单个 QQ 主进程发 TERM，仍存活则 KILL（Electron 常吞 TERM）。"""
+    text_runner = run_exec_text or _docker_exec_text
+    text_runner(
+        container_name,
+        ["sh", "-c", f"kill -TERM {pid} 2>/dev/null || true"],
+        display=display,
+    )
+    time.sleep(0.5)
+    text_runner(
+        container_name,
+        [
+            "sh",
+            "-c",
+            (f"kill -KILL {pid} 2>/dev/null || true; pkill -KILL -P {pid} 2>/dev/null || true"),
+        ],
+        display=display,
+    )
+    time.sleep(0.4)
+
+
 def stop_snowluma_qq_process_for_uin(
     container_name: str,
     uin: str,
@@ -423,76 +450,73 @@ def stop_snowluma_qq_process_for_uin(
         display=display,
         run_exec_text=text_runner,
     )
+    original_pid = pid
+
+    def _current_pid() -> int | None:
+        return resolve_qq_main_pid_for_uin(
+            container_name,
+            target,
+            member_uins=member_uins,
+            primary_uin=primary_uin,
+            display=display,
+            run_exec_text=text_runner,
+        )
+
     # supervisord 托管（主号 qq / 副号 qq-extra-N）均带 autorestart，必须走 supervisorctl
     if program:
         ok, detail = supervisorctl_qq(container_name, "stop", program=program)
         if not ok:
             return False, pid, detail or f"未能停止 QQ（supervisorctl {program}）"
         time.sleep(0.6)
-        still = resolve_qq_main_pid_for_uin(
+        still = _current_pid()
+        if not still:
+            logger.info(
+                "SnowLuma 容器 %s 已经 supervisorctl 停止 UIN %s QQ（program=%s 原 pid=%s）",
+                container_name,
+                target,
+                program,
+                original_pid,
+            )
+            return True, original_pid, ""
+        # supervisor 已 STOPPED，但 QQ --relaunch 常变成 ppid=1 孤儿，需补刀
+        logger.warning(
+            "SnowLuma 容器 %s supervisorctl stop %s 后仍有 QQ pid=%s，尝试强制结束",
             container_name,
-            target,
-            member_uins=member_uins,
-            primary_uin=primary_uin,
-            display=display,
-            run_exec_text=text_runner,
-        )
-        if still:
-            return False, still, f"supervisorctl stop {program} 后进程仍在 pid={still}"
-        logger.info(
-            "SnowLuma 容器 {} 已经 supervisorctl 停止 UIN {} QQ（program={} 原 pid={}）",
-            container_name,
-            target,
             program,
-            pid,
+            still,
         )
-        return True, pid, ""
+        pid = still
 
     if not pid:
         return True, None, ""
 
-    def _alive_same_pid() -> bool:
-        still = resolve_qq_main_pid_for_uin(
+    # Electron/QQ 常吞掉 SIGTERM；supervisor 停后的 --relaunch 孤儿同样走这里
+    for _ in range(3):
+        cur = _current_pid()
+        if not cur:
+            logger.info(
+                "SnowLuma 容器 %s 已停止 UIN %s 的 QQ 进程（原 pid=%s）",
+                container_name,
+                target,
+                original_pid,
+            )
+            return True, original_pid, ""
+        _kill_qq_main_pid(
             container_name,
-            target,
-            member_uins=member_uins,
-            primary_uin=primary_uin,
+            cur,
             display=display,
             run_exec_text=text_runner,
         )
-        return bool(still and still == pid)
-
-    # Electron/QQ 常吞掉 SIGTERM 且 kill 仍返回 0，不能写 kill || kill -9
-    text_runner(
-        container_name,
-        ["sh", "-c", f"kill -TERM {pid} 2>/dev/null || true"],
-        display=display,
-    )
-    time.sleep(0.5)
-    if _alive_same_pid():
-        text_runner(
-            container_name,
-            [
-                "sh",
-                "-c",
-                (
-                    f"kill -KILL {pid} 2>/dev/null || true; "
-                    # 顺带清同树残留（失败忽略）
-                    f"pkill -KILL -P {pid} 2>/dev/null || true"
-                ),
-            ],
-            display=display,
-        )
-        time.sleep(0.4)
-    if _alive_same_pid():
-        return False, pid, f"未能停止 QQ 进程 pid={pid}"
+    still = _current_pid()
+    if still:
+        return False, still, f"未能停止 QQ 进程 pid={still}"
     logger.info(
-        "SnowLuma 容器 {} 已停止 UIN {} 的 QQ 进程 pid={}",
+        "SnowLuma 容器 %s 已停止 UIN %s 的 QQ 进程 pid=%s",
         container_name,
         target,
-        pid,
+        original_pid,
     )
-    return True, pid, ""
+    return True, original_pid, ""
 
 
 def window_net_wm_pid(
