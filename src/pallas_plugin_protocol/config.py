@@ -454,15 +454,15 @@ class Config(BaseModel):
         json_schema_extra=_ui("SnowLuma Docker", 60),
     )
     pallas_protocol_snowluma_docker_memory_limit: str = Field(
-        default="1g",
+        default="2g",
         description=field_help(
             "SnowLuma Docker 容器内存上限",
-            "多开时建议设置，例如 1g；留空表示不限制",
+            "多开时建议设置；单号约 2g，多号共享可再提高；留空表示不限制",
         ),
         json_schema_extra=_ui("SnowLuma Docker", 70),
     )
     pallas_protocol_snowluma_docker_memory_swap: str = Field(
-        default="1536m",
+        default="3g",
         description=field_help(
             "SnowLuma Docker 容器 memory+swap 总量",
             "需不小于内存上限；留空表示不单独设置",
