@@ -3,7 +3,13 @@
 本文件依据 git tag 历史整理，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 新提交合入后请在 `## [Unreleased]` 下记录，发布时随版本 tag 归档。
 
-## [Unreleased]
+## [4.0.52] - 2026-08-04
+
+### 更新公告
+
+- 修改 SnowLuma OneBot WS 地址、名称或 token 时，读取在线完整配置后热应用，不再重启容器。
+- Docker OneBot 配置文件改为容器可读，避免保存后协议端无法加载。
+- 共享 SnowLuma Runtime 的「重启」恢复为重启整个 Runtime；「启 QQ / 停 QQ」仍只影响当前账号。
 
 ## [4.0.51] - 2026-08-04
 
