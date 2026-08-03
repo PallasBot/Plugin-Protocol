@@ -66,14 +66,14 @@ def build_snowluma_ws_client_entry(account: dict, url_out: str) -> dict[str, Any
     }
 
 
-def merge_snowluma_docker_snapshot_ws_clients(data: dict[str, Any], client_entry: dict[str, Any]) -> dict[str, Any]:
-    """将 wsClients 写入 SnowLuma Docker 使用的 snapshot 格式 onebot 配置。"""
+def merge_snowluma_ws_clients(data: dict[str, Any], client_entry: dict[str, Any]) -> dict[str, Any]:
+    """将一个 WS client 合并到 SnowLuma OneBot 配置。"""
     out = dict(data) if isinstance(data, dict) else {}
-    out.setdefault("mode", "snapshot")
-    out.setdefault("statusCommand", {"enabled": False})
     networks = out.get("networks")
     if not isinstance(networks, dict):
         networks = {}
+    else:
+        networks = dict(networks)
     ws_clients = networks.get("wsClients")
     if not isinstance(ws_clients, list):
         ws_clients = []
@@ -89,6 +89,14 @@ def merge_snowluma_docker_snapshot_ws_clients(data: dict[str, Any], client_entry
         ws_clients.insert(0, dict(client_entry))
     networks["wsClients"] = ws_clients
     out["networks"] = networks
+    return out
+
+
+def merge_snowluma_docker_snapshot_ws_clients(data: dict[str, Any], client_entry: dict[str, Any]) -> dict[str, Any]:
+    """将 wsClients 写入 SnowLuma Docker 使用的 snapshot 格式 onebot 配置。"""
+    out = merge_snowluma_ws_clients(data, client_entry)
+    out.setdefault("mode", "snapshot")
+    out.setdefault("statusCommand", {"enabled": False})
     return out
 
 
@@ -111,6 +119,7 @@ def sync_snowluma_onebot_docker_snapshot(
     current = cfg.safe_read_json(path) if path.is_file() else {}
     merged = merge_snowluma_docker_snapshot_ws_clients(current, client_entry)
     path.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+    path.chmod(0o644)
     account["onebot_docker_config_path"] = str(path)
     return path
 
@@ -426,6 +435,7 @@ __all__ = [
     "extract_snowluma_webui_temp_password_from_log_files",
     "extract_snowluma_webui_temp_password_from_log_lines",
     "get_snowluma_account_configs",
+    "merge_snowluma_ws_clients",
     "merge_snowluma_docker_snapshot_ws_clients",
     "read_snowluma_runtime_into_account",
     "read_snowluma_runtime_webui_password",

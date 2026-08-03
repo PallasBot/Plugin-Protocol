@@ -44,6 +44,7 @@ webui_client = load_module(f"{_PKG}.snowluma_webui_client", "snowluma_webui_clie
 generate_snowluma_managed_webui_password = webui_client.generate_snowluma_managed_webui_password
 snowluma_ensure_webui_session = webui_client.snowluma_ensure_webui_session
 snowluma_apply_onebot_config = webui_client.snowluma_apply_onebot_config
+snowluma_fetch_onebot_config = webui_client.snowluma_fetch_onebot_config
 snowluma_webui_login = webui_client.snowluma_webui_login
 snowluma_webui_password_candidates = webui_client.snowluma_webui_password_candidates
 
@@ -98,6 +99,32 @@ async def test_snowluma_apply_onebot_config_returns_hot_reload_state() -> None:
             {"Authorization": "Bearer tok"},
             "12345",
             {"networks": {"wsClients": []}},
+        )
+
+    assert result == expected
+
+
+@pytest.mark.asyncio
+async def test_snowluma_fetch_onebot_config_returns_full_webui_config() -> None:
+    expected = {
+        "account": {"uin": "12345"},
+        "networks": {"wsClients": []},
+        "message": {"reportSelfMessage": False},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/api/config/12345"
+        assert request.headers["Authorization"] == "Bearer tok"
+        return httpx.Response(200, json=expected)
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport, base_url="http://sl.test") as client:
+        result = await snowluma_fetch_onebot_config(
+            client,
+            "http://sl.test",
+            {"Authorization": "Bearer tok"},
+            "12345",
         )
 
     assert result == expected

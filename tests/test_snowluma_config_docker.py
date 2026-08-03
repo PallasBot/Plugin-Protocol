@@ -116,3 +116,27 @@ def test_sync_snowluma_onebot_docker_snapshot_writes_file(tmp_path: Path) -> Non
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["mode"] == "snapshot"
     assert data["networks"]["wsClients"][0]["url"].endswith("/onebot/v11/ws")
+
+
+def test_sync_snowluma_onebot_docker_snapshot_makes_existing_file_readable(tmp_path: Path) -> None:
+    ad = tmp_path / "inst" / "snowluma"
+    config_dir = ad / "docker" / "snowluma" / "snowluma-data" / "config"
+    config_dir.mkdir(parents=True)
+    path = config_dir / "onebot_3879348674.json"
+    path.write_text(json.dumps({"mode": "snapshot"}), encoding="utf-8")
+    path.chmod(0o600)
+    account = {
+        "id": "3879348674",
+        "qq": "3879348674",
+        "snowluma_linux_docker": True,
+        "account_data_dir": str(ad),
+    }
+
+    result = snowluma_config.sync_snowluma_onebot_docker_snapshot(
+        FakeCfg(),
+        account,
+        lambda acc: str(acc["qq"]),
+    )
+
+    assert result == path
+    assert result.stat().st_mode & 0o777 == 0o644

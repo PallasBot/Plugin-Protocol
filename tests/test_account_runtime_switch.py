@@ -201,6 +201,7 @@ async def test_update_snowluma_ws_settings_hot_reloads_without_restart(
     service._napcat_core_running = lambda account_id, item=None: True
     service.tail_logs = lambda account_id, limit: []
     applied: dict[str, object] = {}
+    fetched: list[tuple[str, str]] = []
 
     async def fake_session(client, base, item, logs):
         assert base == "http://127.0.0.1:6500"
@@ -210,7 +211,15 @@ async def test_update_snowluma_ws_settings_hot_reloads_without_restart(
         applied.update({"base": base, "headers": headers, "uin": uin, "config": config})
         return {"success": True, "saved": True, "online": True, "applied": True, "reloaded": True}
 
+    async def fake_fetch(client, base, headers, uin):
+        fetched.append((base, uin))
+        return {
+            "message": {"reportSelfMessage": False},
+            "networks": {"wsClients": [{"name": "other", "url": "ws://other/ws"}]},
+        }
+
     monkeypatch.setattr(service_module, "snowluma_ensure_webui_session", fake_session)
+    monkeypatch.setattr(service_module, "snowluma_fetch_onebot_config", fake_fetch, raising=False)
     monkeypatch.setattr(service_module, "snowluma_apply_onebot_config", fake_apply)
 
     result = await service.update_account(
@@ -223,6 +232,35 @@ async def test_update_snowluma_ws_settings_hot_reloads_without_restart(
     assert result["restarted"] is False
     assert result["hot_reload"]["reloaded"] is True
     assert applied["uin"] == "10001"
+    assert fetched == [("http://127.0.0.1:6500", "10001")]
+    assert applied["config"]["message"] == {"reportSelfMessage": False}
+    assert {client["name"] for client in applied["config"]["networks"]["wsClients"]} == {"other", "pallas"}
+
+
+@pytest.mark.asyncio
+async def test_restart_shared_snowluma_runtime_restarts_container() -> None:
+    runtime = {"id": "sl-rt-shared", "data_dir": "/tmp/shared", "webui_port": 6200}
+    service, account = make_service(runtime)
+    account.update({
+        "protocol_backend": SNOWLUMA_PROTOCOL_BACKEND,
+        "snowluma_runtime_id": runtime["id"],
+        "snowluma_linux_docker": True,
+        "account_data_dir": runtime["data_dir"],
+    })
+    service._accounts["10002"] = {
+        "id": "10002",
+        "qq": "10002",
+        "protocol_backend": SNOWLUMA_PROTOCOL_BACKEND,
+        "snowluma_runtime_id": runtime["id"],
+        "snowluma_linux_docker": True,
+        "account_data_dir": runtime["data_dir"],
+    }
+    service.restart_account = PallasProtocolService.restart_account.__get__(service)
+
+    await service.restart_account("10001")
+
+    assert service.calls == [f"stop-runtime:{runtime['id']}"]
+    assert service.started == ["10001"]
 
 
 @pytest.mark.asyncio

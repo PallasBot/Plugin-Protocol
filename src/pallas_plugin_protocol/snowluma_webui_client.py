@@ -333,6 +333,24 @@ async def snowluma_apply_onebot_config(
     return payload
 
 
+async def snowluma_fetch_onebot_config(
+    client: httpx.AsyncClient,
+    base: str,
+    headers: dict[str, str],
+    uin: str,
+) -> dict[str, Any]:
+    """读取 SnowLuma WebUI 当前的完整 OneBot 配置。"""
+    response = await client.get(f"{base}/api/config/{uin}", headers=headers)
+    response.raise_for_status()
+    try:
+        payload = response.json()
+    except Exception as err:
+        raise ValueError("SnowLuma OneBot 配置读取返回了无效响应") from err
+    if not isinstance(payload, dict):
+        raise ValueError("SnowLuma OneBot 配置读取返回了无效响应")
+    return payload
+
+
 __all__ = [
     "SnowlumaWebuiLogin",
     "ensure_snowluma_managed_webui_password",
@@ -342,6 +360,7 @@ __all__ = [
     "snowluma_change_webui_password",
     "snowluma_consent_config_path",
     "snowluma_ensure_webui_session",
+    "snowluma_fetch_onebot_config",
     "snowluma_fetch_processes",
     "snowluma_webui_login",
     "snowluma_webui_login_error_message",

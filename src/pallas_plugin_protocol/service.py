@@ -71,7 +71,12 @@ from .runtime.snowluma_installer import (
     SnowLumaRuntimeStore,
     default_snowluma_asset_name_for_tag,
 )
-from .snowluma_config import resolve_snowluma_webui_temp_password
+from .snowluma_config import (
+    build_snowluma_ws_client_entry,
+    merge_snowluma_ws_clients,
+    resolve_snowluma_webui_temp_password,
+    resolve_snowluma_ws_client_url,
+)
 from .snowluma_health import assess_snowluma_account_health, is_snowluma_account
 from .snowluma_host_deps import log_snowluma_host_deps_once
 from .snowluma_qr_capture import (
@@ -87,6 +92,7 @@ from .snowluma_runtime_ops import SnowLumaRuntimeOpsMixin
 from .snowluma_webui_client import (
     snowluma_apply_onebot_config,
     snowluma_ensure_webui_session,
+    snowluma_fetch_onebot_config,
     snowluma_fetch_processes,
 )
 
@@ -1525,18 +1531,10 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         qq = str(self._resolve_qq(account) or "").strip()
         if not qq.isdigit() or len(qq) < 5:
             raise ValueError("账号 QQ 无效")
-        from .snowluma_config import snowluma_docker_onebot_path, snowluma_onebot_path
-
-        if bool(account.get("snowluma_linux_docker")):
-            config_path = snowluma_docker_onebot_path(account, qq)
-        else:
-            data_dir = Path(str(account.get("account_data_dir", "") or "").strip())
-            config_path = snowluma_onebot_path(data_dir / "config", qq)
-        if config_path is None:
-            raise ValueError("SnowLuma OneBot 配置路径不可用")
-        config = self._configs.safe_read_json(config_path)
-        if not config:
-            raise ValueError("SnowLuma OneBot 配置为空，无法热应用")
+        client_entry = build_snowluma_ws_client_entry(
+            account,
+            resolve_snowluma_ws_client_url(account, plugin_config=self._config),
+        )
 
         base = self.snowluma_webui_http_base(account).rstrip("/")
         timeout = httpx.Timeout(25.0, connect=8.0)
@@ -1547,7 +1545,14 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
                 account,
                 self.tail_logs(account_id, 900),
             )
-            result = await snowluma_apply_onebot_config(client, base, headers, qq, config)
+            config = await snowluma_fetch_onebot_config(client, base, headers, qq)
+            result = await snowluma_apply_onebot_config(
+                client,
+                base,
+                headers,
+                qq,
+                merge_snowluma_ws_clients(config, client_entry),
+            )
         if account_dirty:
             self._save_accounts()
         return result
@@ -2639,9 +2644,6 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
             str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY) or "").strip().lower() == SNOWLUMA_PROTOCOL_BACKEND
         ):
             rid = str(account.get(SNOWLUMA_RUNTIME_ID_KEY, "") or "").strip()
-            if rid and self.account_shares_snowluma_runtime(account):
-                # 共享 Runtime：只重新 inject / 引导登录，不重启容器
-                return await self.start_account(account_id)
             if rid:
                 await self.stop_snowluma_runtime(rid)
                 return await self.start_account(account_id)
