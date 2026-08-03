@@ -348,6 +348,9 @@ async def snowluma_fetch_onebot_config(
         raise ValueError("SnowLuma OneBot 配置读取返回了无效响应") from err
     if not isinstance(payload, dict):
         raise ValueError("SnowLuma OneBot 配置读取返回了无效响应")
+    config = payload.get("config")
+    if isinstance(config, dict):
+        return config
     return payload
 
 

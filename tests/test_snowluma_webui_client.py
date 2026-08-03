@@ -116,7 +116,7 @@ async def test_snowluma_fetch_onebot_config_returns_full_webui_config() -> None:
         assert request.method == "GET"
         assert request.url.path == "/api/config/12345"
         assert request.headers["Authorization"] == "Bearer tok"
-        return httpx.Response(200, json=expected)
+        return httpx.Response(200, json={"config": expected})
 
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport, base_url="http://sl.test") as client:
