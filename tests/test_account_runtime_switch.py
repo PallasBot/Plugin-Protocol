@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import types
 from pathlib import Path
-from types import MethodType
+from types import MethodType, SimpleNamespace
 
 import pytest
 
@@ -40,6 +41,7 @@ sys.modules.update({
     "pallas.api.utils": _PALLAS_UTILS,
 })
 
+import pallas_plugin_protocol.service as service_module  # noqa: E402
 from pallas_plugin_protocol.contract import (  # noqa: E402
     DEFAULT_PROTOCOL_BACKEND,
     SNOWLUMA_PROTOCOL_BACKEND,
@@ -133,6 +135,10 @@ async def record_start(service: PallasProtocolService, account_id: str) -> None:
     service.started.append(account_id)
 
 
+async def record_restart(service: PallasProtocolService, account_id: str) -> None:
+    service.restarted.append(account_id)
+
+
 def make_service(
     runtime: dict | None = None,
     *,
@@ -152,6 +158,7 @@ def make_service(
     service._sl_runtime_registry = RuntimeRegistry(runtime)
     service.calls = []
     service.started = []
+    service.restarted = []
     service._resolve_qq = lambda item: str(item["qq"])
     service._protocol_runtime_backend = lambda item: Backend(service.calls, allocate_ports=allocate_ports)
     service._refresh_linux_docker_run_argv = lambda item: service.calls.append("docker-argv")
@@ -168,7 +175,54 @@ def make_service(
     service._remove_both_linux_docker_container_names_for_account = MethodType(record_remove, service)
     service._save_accounts = MethodType(lambda self: self.calls.append("save"), service)
     service.start_account = MethodType(record_start, service)
+    service.restart_account = MethodType(record_restart, service)
     return service, account
+
+
+@pytest.mark.asyncio
+async def test_update_snowluma_ws_settings_hot_reloads_without_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, account = make_service()
+    account.update({
+        "protocol_backend": SNOWLUMA_PROTOCOL_BACKEND,
+        "snowluma_linux_docker": True,
+        "webui_port": 6500,
+        "account_data_dir": str(tmp_path),
+    })
+    config_path = tmp_path / "docker" / "snowluma" / "snowluma-data" / "config" / "onebot_10001.json"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({"mode": "snapshot", "networks": {"wsClients": []}}),
+        encoding="utf-8",
+    )
+    service._config = SimpleNamespace(pallas_protocol_bind_host="127.0.0.1")
+    service._configs = SimpleNamespace(safe_read_json=lambda path: json.loads(Path(path).read_text(encoding="utf-8")))
+    service._napcat_core_running = lambda account_id, item=None: True
+    service.tail_logs = lambda account_id, limit: []
+    applied: dict[str, object] = {}
+
+    async def fake_session(client, base, item, logs):
+        assert base == "http://127.0.0.1:6500"
+        return {"Authorization": "Bearer token"}, False
+
+    async def fake_apply(client, base, headers, uin, config):
+        applied.update({"base": base, "headers": headers, "uin": uin, "config": config})
+        return {"success": True, "saved": True, "online": True, "applied": True, "reloaded": True}
+
+    monkeypatch.setattr(service_module, "snowluma_ensure_webui_session", fake_session)
+    monkeypatch.setattr(service_module, "snowluma_apply_onebot_config", fake_apply)
+
+    result = await service.update_account(
+        "10001",
+        {"ws_url": "ws://172.17.0.1:7999/onebot/v11/ws"},
+        restart=True,
+    )
+
+    assert service.restarted == []
+    assert result["restarted"] is False
+    assert result["hot_reload"]["reloaded"] is True
+    assert applied["uin"] == "10001"
 
 
 @pytest.mark.asyncio

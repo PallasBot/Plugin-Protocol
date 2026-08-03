@@ -307,11 +307,38 @@ async def snowluma_fetch_processes(
     return []
 
 
+async def snowluma_apply_onebot_config(
+    client: httpx.AsyncClient,
+    base: str,
+    headers: dict[str, str],
+    uin: str,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    """保存并请求 SnowLuma 热应用指定 QQ 的 OneBot 配置。"""
+    response = await client.post(
+        f"{base}/api/config/{uin}",
+        json=config,
+        headers=headers,
+    )
+    response.raise_for_status()
+    try:
+        payload = response.json()
+    except Exception as err:
+        raise ValueError("SnowLuma OneBot 配置热应用返回了无效响应") from err
+    if not isinstance(payload, dict):
+        raise ValueError("SnowLuma OneBot 配置热应用返回了无效响应")
+    if not payload.get("success") or not payload.get("saved"):
+        detail = str(payload.get("message") or response.text or "未知错误").strip()
+        raise ValueError(f"SnowLuma OneBot 配置保存失败: {detail}")
+    return payload
+
+
 __all__ = [
     "SnowlumaWebuiLogin",
     "ensure_snowluma_managed_webui_password",
     "generate_snowluma_managed_webui_password",
     "snowluma_accept_webui_consent_if_needed",
+    "snowluma_apply_onebot_config",
     "snowluma_change_webui_password",
     "snowluma_consent_config_path",
     "snowluma_ensure_webui_session",

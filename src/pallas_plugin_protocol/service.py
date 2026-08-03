@@ -85,6 +85,7 @@ from .snowluma_qr_capture import (
 )
 from .snowluma_runtime_ops import SnowLumaRuntimeOpsMixin
 from .snowluma_webui_client import (
+    snowluma_apply_onebot_config,
     snowluma_ensure_webui_session,
     snowluma_fetch_processes,
 )
@@ -1520,6 +1521,37 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
             raise ValueError("账号未设置有效的内置 WebUI 端口 webui_port")
         return f"http://{h}:{p}"
 
+    async def snowluma_hot_reload_onebot_config(self, account_id: str, account: dict) -> dict[str, object]:
+        qq = str(self._resolve_qq(account) or "").strip()
+        if not qq.isdigit() or len(qq) < 5:
+            raise ValueError("账号 QQ 无效")
+        from .snowluma_config import snowluma_docker_onebot_path, snowluma_onebot_path
+
+        if bool(account.get("snowluma_linux_docker")):
+            config_path = snowluma_docker_onebot_path(account, qq)
+        else:
+            data_dir = Path(str(account.get("account_data_dir", "") or "").strip())
+            config_path = snowluma_onebot_path(data_dir / "config", qq)
+        if config_path is None:
+            raise ValueError("SnowLuma OneBot 配置路径不可用")
+        config = self._configs.safe_read_json(config_path)
+        if not config:
+            raise ValueError("SnowLuma OneBot 配置为空，无法热应用")
+
+        base = self.snowluma_webui_http_base(account).rstrip("/")
+        timeout = httpx.Timeout(25.0, connect=8.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            headers, account_dirty = await snowluma_ensure_webui_session(
+                client,
+                base,
+                account,
+                self.tail_logs(account_id, 900),
+            )
+            result = await snowluma_apply_onebot_config(client, base, headers, qq, config)
+        if account_dirty:
+            self._save_accounts()
+        return result
+
     async def snowluma_inject_hook_via_webui(self, account_id: str) -> dict[str, object]:
         account = self._accounts.get(account_id)
         if not account:
@@ -1656,6 +1688,7 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         old_backend = str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY) or DEFAULT_PROTOCOL_BACKEND).strip().lower()
         old_backend = old_backend or DEFAULT_PROTOCOL_BACKEND
         need_restart = self._napcat_core_running(account_id, account)
+        original_account = dict(account)
         editable_keys = (
             "display_name",
             "command",
@@ -1683,6 +1716,17 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
             account[ACCOUNT_PROTOCOL_BACKEND_KEY] = v or DEFAULT_PROTOCOL_BACKEND
         new_backend = str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY) or DEFAULT_PROTOCOL_BACKEND).strip().lower()
         new_backend = new_backend or DEFAULT_PROTOCOL_BACKEND
+        hot_reload_fields = {"display_name", "ws_url", "ws_name", "ws_token"}
+        changed_fields = {
+            key for key in hot_reload_fields if key in payload and payload[key] != original_account.get(key)
+        }
+        hot_reload_eligible = (
+            new_backend == SNOWLUMA_PROTOCOL_BACKEND
+            and bool(changed_fields)
+            and not any(
+                key in payload and payload[key] != original_account.get(key) for key in set(payload) - hot_reload_fields
+            )
+        )
         if ACCOUNT_PROTOCOL_BACKEND_KEY in payload and new_backend != old_backend:
             if account.get("napcat_linux_docker") or account.get("snowluma_linux_docker"):
                 await self.stop_account(account_id)
@@ -1762,13 +1806,32 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         self._refresh_linux_docker_run_argv(account)
         account["updated_at"] = datetime.now(UTC).isoformat()
         self._save_accounts()
-        restarted = bool(need_restart and restart)
+        hot_reload: dict[str, object] | None = None
+        if hot_reload_eligible:
+            if need_restart:
+                try:
+                    hot_reload = await self.snowluma_hot_reload_onebot_config(account_id, account)
+                except Exception as err:
+                    hot_reload = {
+                        "attempted": True,
+                        "reloaded": False,
+                        "error": str(err),
+                    }
+            else:
+                hot_reload = {
+                    "attempted": False,
+                    "reloaded": False,
+                    "online": False,
+                    "message": "配置已保存，SnowLuma 未运行，将在下次连接时生效。",
+                }
+        restarted = bool(need_restart and restart and hot_reload is None)
         if restarted:
             await self.restart_account(account_id)
         return {
             "account": self._compose_account_state(account_id, account),
             "restarted": restarted,
             "needs_restart": bool(need_restart),
+            "hot_reload": hot_reload,
         }
 
     def _resolve_switch_snowluma_runtime(self, account: dict, payload: dict) -> dict:
