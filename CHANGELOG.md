@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+## [4.0.51] - 2026-08-04
+
+### 更新公告
+
+- SnowLuma 账号修改 OneBot WS 地址（含端口）、名称或 token 后会直接热应用，不再重启容器
+
+### Added
+
+- feat(snowluma): 通过 SnowLuma WebUI 热应用已保存的 OneBot 配置，并向控制台返回应用结果
+
 ## [4.0.50] - 2026-07-28
 
 ### 更新公告
