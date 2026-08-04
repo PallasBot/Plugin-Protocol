@@ -54,6 +54,10 @@ QQ_LOGIN_FAILURE_TEXT_MARKERS = (
     "用户身份已失效",
     "当前登录已失效",
 )
+QQ_SECURITY_RISK_TEXT_MARKERS = (
+    "账号近期存在安全风险",
+    "根据提示恢复账号使用",
+)
 QQ_EXPIRED_QRCODE_TEXT_MARKER = "当前二维码已过期"
 XMESSAGE_DISMISSABLE_TEXT_MARKERS = ("fbsetbg:",)
 OCR_UNAVAILABLE_SENTINEL = "__PALLAS_OCR_UNAVAILABLE__"
@@ -282,22 +286,20 @@ def is_known_qq_login_failure_text(text: str) -> bool:
     return any(marker in (text or "") for marker in QQ_LOGIN_FAILURE_TEXT_MARKERS)
 
 
-def is_known_qq_expired_qrcode_text(text: str) -> bool:
-    """仅匹配 QQ 二维码过期遮罩，避免误点登录窗。"""
-    return QQ_EXPIRED_QRCODE_TEXT_MARKER in (text or "")
+def is_known_qq_security_risk_notice(text: str) -> bool:
+    """QQ 安全风控弹窗只能由用户在手机端完成恢复。"""
+    normalized = text or ""
+    return all(marker in normalized for marker in QQ_SECURITY_RISK_TEXT_MARKERS)
 
 
-def click_known_qq_expired_qrcode_refresh(
+def ocr_qq_login_window_text(
     container_name: str,
     window_id: str,
-    width: int,
-    height: int,
     *,
     display: str = DEFAULT_DISPLAY,
     run_exec: Any | None = None,
     run_exec_text: Any | None = None,
-) -> bool | None:
-    """识别 QQ 已过期二维码遮罩后点击「刷新」。"""
+) -> str | None:
     exec_runner = run_exec or _docker_exec
     text_runner = run_exec_text or _docker_exec_text
     if (
@@ -320,7 +322,34 @@ def click_known_qq_expired_qrcode_refresh(
         ],
         display=display,
     )
-    if OCR_UNAVAILABLE_SENTINEL in text:
+    return None if OCR_UNAVAILABLE_SENTINEL in text else text
+
+
+def is_known_qq_expired_qrcode_text(text: str) -> bool:
+    """仅匹配 QQ 二维码过期遮罩，避免误点登录窗。"""
+    return QQ_EXPIRED_QRCODE_TEXT_MARKER in (text or "")
+
+
+def click_known_qq_expired_qrcode_refresh(
+    container_name: str,
+    window_id: str,
+    width: int,
+    height: int,
+    *,
+    display: str = DEFAULT_DISPLAY,
+    run_exec: Any | None = None,
+    run_exec_text: Any | None = None,
+) -> bool | None:
+    """识别 QQ 已过期二维码遮罩后点击「刷新」。"""
+    exec_runner = run_exec or _docker_exec
+    text = ocr_qq_login_window_text(
+        container_name,
+        window_id,
+        display=display,
+        run_exec=exec_runner,
+        run_exec_text=run_exec_text,
+    )
+    if text is None:
         return None
     if not is_known_qq_expired_qrcode_text(text):
         return False
@@ -335,6 +364,44 @@ def click_known_qq_expired_qrcode_refresh(
     time.sleep(2.0)
     logger.info("SnowLuma 容器 {} 已刷新过期 QQ 二维码", container_name)
     return True
+
+
+def find_qq_login_security_risk_notice(
+    account: dict,
+    *,
+    config: Any | None = None,
+    run_exec: Any | None = None,
+    run_exec_text: Any | None = None,
+) -> str | None:
+    if not account_uses_snowluma_docker(account):
+        return None
+    container = resolve_snowluma_docker_container_name(account)
+    display = snowluma_qr_capture_display(config)
+    text_runner = run_exec_text or _docker_exec_text
+    login = locate_qq_login_window(
+        container,
+        display=display,
+        run_exec=run_exec,
+        run_exec_text=text_runner,
+        prefer_pid=resolve_prefer_qq_pid_for_account(
+            account,
+            container,
+            display=display,
+            run_exec_text=text_runner,
+        ),
+    )
+    if login is None:
+        return None
+    text = ocr_qq_login_window_text(
+        container,
+        login[0],
+        display=display,
+        run_exec=run_exec,
+        run_exec_text=text_runner,
+    )
+    if not text or not is_known_qq_security_risk_notice(text):
+        return None
+    return "账号存在安全风险，请在最新版手机 QQ 按提示恢复后再试。"
 
 
 def confirm_known_qq_login_failure_dialog(
@@ -967,6 +1034,14 @@ def restore_snowluma_qq_login(
     )
     if path is not None:
         return {"mode": "qrcode", "qrcode_path": str(path)}
+    risk_notice = find_qq_login_security_risk_notice(
+        account,
+        config=config,
+        run_exec=run_exec,
+        run_exec_text=run_exec_text,
+    )
+    if risk_notice:
+        return {"mode": "security_risk", "message": risk_notice}
     ensure_qq_auto_login_checked(
         account,
         config=config,

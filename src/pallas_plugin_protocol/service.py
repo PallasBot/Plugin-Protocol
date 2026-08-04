@@ -2961,6 +2961,8 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
                 meta["available"] = False
                 # Hook 由 SnowLuma HOOK_AUTOLOAD 负责
                 return meta
+            elif mode == "security_risk":
+                raise ValueError(str(restored.get("message") or "账号存在安全风险，请先在手机 QQ 恢复"))
             if path is None or not path.is_file():
                 path = await wait_and_capture_snowluma_qrcode(
                     account,

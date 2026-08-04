@@ -206,13 +206,13 @@ def resolve_qq_supervisor_program(
     return f"qq-extra-{idx + 1}"
 
 
-def list_qq_main_pids_by_home(
+def list_qq_main_pid_candidates_by_home(
     container_name: str,
     *,
     display: str = DEFAULT_DISPLAY,
     run_exec_text: Any | None = None,
-) -> dict[str, int]:
-    """容器内主 QQ 进程：``HOME -> pid``（排除 ``--type=`` 渲染进程与 crashpad）。"""
+) -> dict[str, list[int]]:
+    """容器内主 QQ 进程：``HOME -> [pid]``（排除渲染进程与 crashpad）。"""
     text_runner = run_exec_text or _docker_exec_text
     # 勿用笼统 *qq*：会命中 /opt/QQ/chrome_crashpad_handler、qq-homes 路径
     script = (
@@ -230,7 +230,7 @@ def list_qq_main_pids_by_home(
         "done"
     )
     raw = text_runner(container_name, ["sh", "-c", script], display=display)
-    out: dict[str, int] = {}
+    out: dict[str, list[int]] = {}
     for line in raw.splitlines():
         parts = line.strip().split(None, 1)
         if len(parts) != 2:
@@ -240,9 +240,37 @@ def list_qq_main_pids_by_home(
         except ValueError:
             continue
         home = parts[1].strip() or PRIMARY_QQ_HOME
-        if home not in out or pid < out[home]:
-            out[home] = pid
+        out.setdefault(home, []).append(pid)
+    for pids in out.values():
+        pids.sort()
     return out
+
+
+def list_qq_main_pids_by_home(
+    container_name: str,
+    *,
+    display: str = DEFAULT_DISPLAY,
+    run_exec_text: Any | None = None,
+) -> dict[str, int]:
+    """每个 HOME 取最新 QQ 主进程 PID。"""
+    candidates = list_qq_main_pid_candidates_by_home(
+        container_name,
+        display=display,
+        run_exec_text=run_exec_text,
+    )
+    return {home: pids[-1] for home, pids in candidates.items() if pids}
+
+
+def _pids_for_qq_home(pids_by_home: dict[str, list[int]], home: str) -> list[int]:
+    pids = pids_by_home.get(home)
+    if pids:
+        return pids
+    if home == PRIMARY_QQ_HOME:
+        for key in ("/app", "/home/snowluma", ""):
+            pids = pids_by_home.get(key)
+            if pids:
+                return pids
+    return []
 
 
 def resolve_qq_main_pid_for_uin(
@@ -259,20 +287,13 @@ def resolve_qq_main_pid_for_uin(
         member_uins=member_uins,
         primary_uin=primary_uin,
     )
-    mapping = list_qq_main_pids_by_home(
+    candidates = list_qq_main_pid_candidates_by_home(
         container_name,
         display=display,
         run_exec_text=run_exec_text,
     )
-    pid = mapping.get(home)
-    if pid:
-        return pid
-    # 兼容 HOME=/home/snowluma 等主号变体
-    if home == PRIMARY_QQ_HOME:
-        for key, value in mapping.items():
-            if key in {"/app", "/home/snowluma", ""}:
-                return value
-    return None
+    pids = _pids_for_qq_home(candidates, home)
+    return pids[-1] if pids else None
 
 
 def ensure_snowluma_qq_process_for_uin(
@@ -289,21 +310,34 @@ def ensure_snowluma_qq_process_for_uin(
     target = str(uin or "").strip()
     if not target.isdigit():
         return False, None, "QQ 无效"
-    existing = resolve_qq_main_pid_for_uin(
-        container_name,
-        target,
-        member_uins=member_uins,
-        primary_uin=primary_uin,
-        display=display,
-        run_exec_text=text_runner,
-    )
-    if existing:
-        return True, existing, ""
     home = resolve_account_qq_home(
         target,
         member_uins=member_uins,
         primary_uin=primary_uin,
     )
+    candidates = list_qq_main_pid_candidates_by_home(
+        container_name,
+        display=display,
+        run_exec_text=text_runner,
+    )
+    existing_pids = _pids_for_qq_home(candidates, home)
+    if existing_pids:
+        active_pid = existing_pids[-1]
+        for stale_pid in existing_pids[:-1]:
+            logger.warning(
+                "SnowLuma 容器 %s 发现 UIN %s 重复 QQ 进程，清理孤儿 pid=%s，保留 pid=%s",
+                container_name,
+                target,
+                stale_pid,
+                active_pid,
+            )
+            _kill_qq_main_pid(
+                container_name,
+                stale_pid,
+                display=display,
+                run_exec_text=text_runner,
+            )
+        return True, active_pid, ""
     program = resolve_qq_supervisor_program(
         container_name,
         home,

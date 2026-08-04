@@ -268,3 +268,33 @@ def test_list_qq_main_pids_ignores_crashpad(monkeypatch) -> None:
     mapping = multi.list_qq_main_pids_by_home("ctr")
     assert mapping["/app/qq-homes/2927116873"] == 487
     assert mapping["/app/qq-homes/3234802804"] == 95436
+
+
+def test_ensure_primary_qq_reaps_older_duplicate_process(monkeypatch) -> None:
+    killed: list[int] = []
+
+    def fake_exec(container: str, argv: list[str], *, display: str = ":1") -> str:
+        del container, display
+        joined = " ".join(argv)
+        if "cmdline" in joined or "/proc/" in joined:
+            return "101 /app\n202 /app\n"
+        return ""
+
+    monkeypatch.setattr(multi, "_docker_exec_text", fake_exec)
+    monkeypatch.setattr(
+        multi,
+        "_kill_qq_main_pid",
+        lambda _container, pid, **_kwargs: killed.append(pid),
+    )
+
+    ok, pid, err = multi.ensure_snowluma_qq_process_for_uin(
+        "ctr",
+        "10001",
+        member_uins=["10001"],
+        primary_uin="10001",
+    )
+
+    assert ok is True
+    assert pid == 202
+    assert err == ""
+    assert killed == [101]

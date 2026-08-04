@@ -110,6 +110,15 @@ def test_known_qq_login_failure_text_matches_offline_notice() -> None:
     )
 
 
+def test_known_qq_security_risk_notice_is_reported_without_auto_dismissal() -> None:
+    detector = getattr(qr_capture, "is_known_qq_security_risk_notice", None)
+    assert detector is not None
+    assert detector(
+        "安全提醒\n你的账号近期存在安全风险，部分功能使用受限，请登录最新手机QQ并根据提示恢复账号使用。"
+    )
+    assert not detector("登录失败，请稍后重试")
+
+
 def test_known_dismissable_xmessage_text_matches_fbsetbg_warning() -> None:
     assert is_known_dismissable_xmessage_text(
         "fbsetbg: Something went wrong while setting wallpaper"
@@ -353,10 +362,39 @@ def test_restore_snowluma_qq_login_prefer_quick_login(tmp_path: Path) -> None:
         patch.object(
             qr_capture, "capture_snowluma_qrcode_once", side_effect=fake_capture
         ),
+        patch.object(qr_capture, "find_qq_login_security_risk_notice", return_value=None),
     ):
         out = qr_capture.restore_snowluma_qq_login(account, prefer_quick_login=True)
     assert out["mode"] == "quick_login"
     assert calls == ["capture", "quick", "capture"]
+
+
+def test_restore_snowluma_qq_login_returns_security_risk_notice(tmp_path: Path) -> None:
+    account = {
+        "id": "risk-notice",
+        "protocol_backend": "snowluma",
+        "snowluma_linux_docker": True,
+        "account_data_dir": str(tmp_path),
+    }
+    risk_notice = getattr(qr_capture, "find_qq_login_security_risk_notice", None)
+    assert risk_notice is not None
+
+    with (
+        patch.object(qr_capture, "capture_snowluma_qrcode_once", return_value=None),
+        patch.object(
+            qr_capture,
+            "find_qq_login_security_risk_notice",
+            return_value="账号存在安全风险，请在最新版手机 QQ 按提示恢复后再试。",
+        ),
+        patch.object(qr_capture, "attempt_snowluma_quick_login") as quick_login,
+    ):
+        out = qr_capture.restore_snowluma_qq_login(account)
+
+    assert out == {
+        "mode": "security_risk",
+        "message": "账号存在安全风险，请在最新版手机 QQ 按提示恢复后再试。",
+    }
+    quick_login.assert_not_called()
 
 
 def test_restore_snowluma_qq_login_captures_qrcode_after_quick_login(
@@ -389,6 +427,7 @@ def test_restore_snowluma_qq_login_captures_qrcode_after_quick_login(
         patch.object(
             qr_capture, "attempt_snowluma_quick_login", side_effect=fake_quick
         ),
+        patch.object(qr_capture, "find_qq_login_security_risk_notice", return_value=None),
     ):
         out = qr_capture.restore_snowluma_qq_login(account, prefer_quick_login=True)
 
@@ -460,6 +499,7 @@ def test_restore_snowluma_qq_login_quick_login(tmp_path: Path) -> None:
         ),
         patch.object(qr_capture, "extract_qr_png_from_screen", return_value=None),
         patch.object(qr_capture, "_command_available_in_container", return_value=True),
+        patch.object(qr_capture, "find_qq_login_security_risk_notice", return_value=None),
     ):
         out = qr_capture.restore_snowluma_qq_login(
             account,
