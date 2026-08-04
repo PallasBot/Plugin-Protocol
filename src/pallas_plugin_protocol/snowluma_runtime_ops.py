@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -203,6 +204,7 @@ class SnowLumaRuntimeOpsMixin:
             "snowluma_docker_host_vnc_port",
             "snowluma_managed_webui_password",
             "program_dir",
+            "snowluma_docker_image",
         ):
             if key in runtime and runtime[key] is not None:
                 account[key] = runtime[key]
@@ -329,6 +331,142 @@ class SnowLumaRuntimeOpsMixin:
                 self.bind_account_to_snowluma_runtime(acc, item)
         self._save_accounts()
         return self._compose_snowluma_runtime_state(item)
+
+    def snowluma_image_switch_coordinator(self: PallasProtocolService):
+        return self._snowluma_image_switch
+
+    async def start_snowluma_runtime_image_switch(self: PallasProtocolService, image: str, apply_mode: str) -> str:
+        target_image = str(image or "").strip()
+        if not target_image:
+            raise ValueError("缺少 image")
+        mode = str(apply_mode or "").strip().lower()
+        if mode not in {"rebuild_all", "next_start"}:
+            raise ValueError("apply_mode 仅支持 rebuild_all 或 next_start")
+
+        async def run_job(job) -> None:
+            await self._run_snowluma_runtime_image_switch(job)
+
+        return await self._snowluma_image_switch.start_job(image=target_image, apply_mode=mode, run_fn=run_job)
+
+    async def _run_snowluma_runtime_image_switch(self: PallasProtocolService, job) -> None:
+        from .docker_cli import docker_rm_force_strict_async, docker_stop_strict_async
+        from .snowluma_docker import (
+            resolve_snowluma_run_image,
+            snowluma_docker_container_name_for_runtime,
+            snowluma_docker_image_exists,
+        )
+
+        if job.apply_mode == "rebuild_all":
+            run_image = resolve_snowluma_run_image(override=job.image)
+            available, inspect_error = await asyncio.to_thread(snowluma_docker_image_exists, run_image)
+            if not available:
+                raise ValueError(inspect_error)
+        runtimes = self._sl_runtime_registry.list_runtimes()
+        total = len(runtimes)
+        errors = False
+        for index, runtime in enumerate(runtimes, start=1):
+            runtime_id = str(runtime.get("id") or "").strip()
+            members = self.snowluma_runtime_members(runtime_id)
+            result: dict[str, Any] = {
+                "id": runtime_id,
+                "was_running": False,
+                "config_saved": False,
+                "stopped": False,
+                "removed": False,
+                "started": False,
+                "final_state": "skipped",
+            }
+            job.results.append(result)
+            job.message = f"处理 Runtime {index}/{total}: {runtime_id or 'unknown'}"
+            try:
+                if not runtime_id:
+                    result.update(final_state="skipped_invalid_runtime", error="Runtime 缺少 id")
+                    errors = True
+                    continue
+                if not members:
+                    self._sl_runtime_registry.update(runtime_id, {"snowluma_docker_image": job.image})
+                    result.update(config_saved=True, final_state="configured_empty")
+                    continue
+                docker_members = [
+                    aid for aid in members if bool((self._accounts.get(aid) or {}).get("snowluma_linux_docker"))
+                ]
+                if not docker_members:
+                    result.update(final_state="skipped_non_docker")
+                    continue
+                was_running = self._snowluma_runtime_process_running(runtime, members=members)
+                result["was_running"] = was_running
+                updated = self._sl_runtime_registry.update(runtime_id, {"snowluma_docker_image": job.image})
+                for aid in members:
+                    account = self._accounts.get(aid)
+                    if account:
+                        self.bind_account_to_snowluma_runtime(account, updated)
+                self._save_accounts()
+                result["config_saved"] = True
+                if job.apply_mode == "next_start" or not was_running:
+                    result["final_state"] = "ready_next_start"
+                    continue
+                try:
+                    await docker_stop_strict_async(snowluma_docker_container_name_for_runtime(updated))
+                    await self.stop_snowluma_runtime(runtime_id)
+                    result["stopped"] = True
+                except Exception as exc:
+                    result.update(
+                        error_stage="stop",
+                        final_state="failed_container_may_still_run",
+                    )
+                    raise RuntimeError(f"停止 Runtime 失败：{exc}") from exc
+                try:
+                    await docker_rm_force_strict_async(snowluma_docker_container_name_for_runtime(updated))
+                    result["removed"] = True
+                except Exception as exc:
+                    result.update(error_stage="remove", final_state="failed_after_remove_attempt")
+                    raise RuntimeError(f"移除 Docker 容器失败：{exc}") from exc
+                try:
+                    await self.start_snowluma_runtime_for_image_switch(runtime_id)
+                    result["started"] = True
+                    result["final_state"] = "running"
+                except Exception as exc:
+                    result.update(error_stage="start", final_state="failed_after_container_removed")
+                    raise RuntimeError(f"启动 Runtime 失败：{exc}") from exc
+            except Exception as exc:
+                errors = True
+                result["error"] = str(exc) or exc.__class__.__name__
+                if result["final_state"] == "skipped":
+                    result.update(error_stage="configure", final_state="failed_configuration")
+            finally:
+                self._snowluma_image_switch.emit(job.job_id)
+        job.status = "completed_with_errors" if errors else "completed"
+        job.message = "镜像切换完成" if not errors else "镜像切换完成，部分 Runtime 失败"
+        job.finished_at = datetime.now(UTC).isoformat()
+        self._snowluma_image_switch.emit(job.job_id)
+
+    async def start_snowluma_runtime_for_image_switch(self: PallasProtocolService, runtime_id: str) -> dict:
+        runtime = self._sl_runtime_registry.get(runtime_id)
+        if not runtime:
+            raise KeyError("Runtime 不存在")
+        members = self.snowluma_runtime_members(runtime_id)
+        if not members:
+            raise ValueError("Runtime 没有挂载账号，无法启动")
+        seed_id = members[0]
+        seed = self._accounts[seed_id]
+        self.bind_account_to_snowluma_runtime(seed, runtime)
+        self.annotate_account_snowluma_multi_qq(seed)
+        proc_rt = self._snowluma_proc_runtime(runtime_id)
+        await self._start_account_snowluma_linux_docker(seed_id, seed, proc_rt, ensure_image=False)
+        for aid in members[1:]:
+            acc = self._accounts.get(aid)
+            if not acc or not acc.get("enabled", True):
+                continue
+            be = self._protocol_runtime_backend(acc)
+            self.bind_account_to_snowluma_runtime(acc, runtime)
+            self.annotate_account_snowluma_multi_qq(acc)
+            be.apply_defaults(acc, self._resolve_qq)
+            be.prepare_dirs(acc)
+            be.sync_all_configs(acc, self._resolve_qq)
+            await self.ensure_snowluma_qq_process_for_account(aid, acc)
+            self.schedule_snowluma_auto_quick_login(aid)
+        self._save_accounts()
+        return self.get_snowluma_runtime(runtime_id) or {}
 
     async def delete_snowluma_runtime(self: PallasProtocolService, runtime_id: str, *, force: bool = False) -> None:
         members = self.snowluma_runtime_members(runtime_id)

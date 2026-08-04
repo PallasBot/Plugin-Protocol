@@ -193,6 +193,7 @@ __all__ = [
     "snowluma_docker_container_running_sync",
     "snowluma_docker_effective_host_novnc_port",
     "snowluma_docker_effective_host_vnc_port",
+    "snowluma_docker_image_exists",
     "snowluma_docker_program_dir_marker",
     "snowluma_docker_remove_force",
     "snowluma_docker_remove_force_sync",
@@ -227,6 +228,25 @@ def rebuild_snowluma_docker_image(base_image: str | None = None) -> tuple[bool, 
     if build.returncode == 0:
         return True, output[-2000:] if output else f"已重建 {tagged}（FROM {upstream}）"
     return False, f"构建 SnowLuma Docker 镜像失败：{output[-1200:]}"
+
+
+def snowluma_docker_image_exists(image: str) -> tuple[bool, str]:
+    """检查实际 docker run 镜像是否已在本地，绝不拉取或构建。"""
+    ref = str(image or "").strip()
+    if not ref:
+        return False, "镜像引用为空"
+    try:
+        inspect = subprocess.run(
+            ["docker", "image", "inspect", ref],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as err:
+        return False, f"检查 SnowLuma Docker 镜像失败：{err}"
+    if inspect.returncode == 0:
+        return True, ""
+    return False, f"本地不存在 SnowLuma Docker 镜像 {ref}，请先拉取或构建镜像"
 
 
 def ensure_snowluma_docker_image(

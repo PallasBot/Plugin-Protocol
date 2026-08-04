@@ -1,7 +1,7 @@
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import nonebot
 import pytest
@@ -177,6 +177,40 @@ def test_runtime_switch_route_authenticates_and_calls_service(monkeypatch) -> No
     assert response.json() == {"account": {"id": "10001"}}
     manager.switch_account_runtime.assert_awaited_once_with(
         "10001", {"protocol_backend": "snowluma", "runtime_mode": "new"}
+    )
+
+
+def test_snowluma_image_switch_route_calls_service(monkeypatch) -> None:
+    monkeypatch.setattr(
+        console_login,
+        "extract_session_from_request",
+        lambda **_kwargs: "session",
+    )
+    coordinator = SimpleNamespace(job_to_dict=lambda job_id: {"job_id": job_id})
+    manager = SimpleNamespace(
+        start_snowluma_runtime_image_switch=AsyncMock(return_value="switch-1"),
+        snowluma_image_switch_coordinator=lambda: coordinator,
+    )
+    app = FastAPI()
+    register_pallas_protocol_routes(
+        app,
+        manager=manager,
+        plugin_config=SimpleNamespace(
+            pallas_protocol_webui_path="",
+            pallas_protocol_web_implementation="",
+            pallas_protocol_webui_enabled=True,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/protocol/console/api/snowluma/runtimes/image-switch",
+        json={"image": "snowluma:test", "apply_mode": "next_start"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["job_id"] == "switch-1"
+    manager.start_snowluma_runtime_image_switch.assert_awaited_once_with(
+        "snowluma:test", "next_start"
     )
 
 

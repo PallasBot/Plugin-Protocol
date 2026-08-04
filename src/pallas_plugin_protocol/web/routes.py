@@ -699,6 +699,60 @@ def register_pallas_protocol_routes(
             )
         }
 
+    @app.post(f"{base}/api/snowluma/runtimes/image-switch")
+    async def start_snowluma_runtime_image_switch(
+        payload: dict[str, Any],
+        token: str | None = Query(default=None),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
+    ):
+        _auth(x_pallas_protocol_token, token)
+        body = payload if isinstance(payload, dict) else {}
+        try:
+            job_id = await manager.start_snowluma_runtime_image_switch(
+                str(body.get("image") or ""), str(body.get("apply_mode") or "")
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        job = manager.snowluma_image_switch_coordinator().job_to_dict(job_id)
+        return {"ok": True, "job_id": job_id, "job": job}
+
+    @app.get(f"{base}/api/snowluma/runtimes/image-switch/{{job_id}}")
+    async def snowluma_runtime_image_switch_status(
+        job_id: str,
+        token: str | None = Query(default=None),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
+    ):
+        _auth(x_pallas_protocol_token, token)
+        job = manager.snowluma_image_switch_coordinator().job_to_dict(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="镜像切换任务不存在")
+        return {"job": job}
+
+    @app.get(f"{base}/api/snowluma/runtimes/image-switch/{{job_id}}/stream")
+    async def snowluma_runtime_image_switch_stream(
+        job_id: str,
+        token: str | None = Query(default=None),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
+    ):
+        _auth(x_pallas_protocol_token, token)
+        coordinator = manager.snowluma_image_switch_coordinator()
+        if coordinator.get_job(job_id) is None:
+            raise HTTPException(status_code=404, detail="镜像切换任务不存在")
+
+        async def _iter():
+            async for chunk in coordinator.subscribe_sse(job_id):
+                yield chunk
+
+        return StreamingResponse(
+            _iter(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     @app.get(f"{base}/api/snowluma/runtimes/{{runtime_id}}")
     async def get_snowluma_runtime(
         runtime_id: str,

@@ -89,6 +89,40 @@ def docker_inspect_running_sync(name: str) -> bool:
     return "true" in (r.stdout or "").lower()
 
 
+async def docker_command_strict_async(*args: str, wait_timeout: int = 120) -> str:
+    """执行 Docker 命令并在不可用、超时或失败时保留 stderr 抛错。"""
+    if not shutil.which("docker"):
+        raise RuntimeError("Docker 不可用：未找到 docker 可执行文件")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker",
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except OSError as err:
+        raise RuntimeError(f"启动 Docker 命令失败：{err}") from err
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=wait_timeout)
+    except TimeoutError as err:
+        proc.kill()
+        await proc.wait()
+        raise RuntimeError(f"Docker {' '.join(args)} 超时（{wait_timeout}s）") from err
+    if proc.returncode != 0:
+        detail = (stderr or stdout or b"").decode("utf-8", errors="replace").strip()
+        suffix = f"：{detail[-1200:]}" if detail else ""
+        raise RuntimeError(f"Docker {' '.join(args)} 失败 (exit {proc.returncode}){suffix}")
+    return (stdout or b"").decode("utf-8", errors="replace")
+
+
+async def docker_stop_strict_async(name: str, *, wait_timeout: int = 120) -> None:
+    await docker_command_strict_async("stop", name, wait_timeout=wait_timeout)
+
+
+async def docker_rm_force_strict_async(name: str, *, wait_timeout: int = 120) -> None:
+    await docker_command_strict_async("rm", "-f", name, wait_timeout=wait_timeout)
+
+
 async def docker_rm_force_async(name: str) -> None:
     if not shutil.which("docker"):
         return

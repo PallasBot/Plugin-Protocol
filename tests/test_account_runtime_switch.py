@@ -84,6 +84,9 @@ class RuntimeRegistry:
                 self.runtime[key] = val
         return dict(self.runtime)
 
+    def list_runtimes(self) -> list[dict]:
+        return [dict(self.runtime)] if self.runtime else []
+
     def delete(self, runtime_id: str) -> None:
         self.deleted.append(runtime_id)
         if self.runtime and self.runtime["id"] == runtime_id:

@@ -79,6 +79,7 @@ from .snowluma_config import (
 )
 from .snowluma_health import assess_snowluma_account_health, is_snowluma_account
 from .snowluma_host_deps import log_snowluma_host_deps_once
+from .snowluma_image_switch_jobs import SnowLumaImageSwitchCoordinator
 from .snowluma_qr_capture import (
     account_uses_snowluma_docker,
     attempt_snowluma_quick_login,
@@ -151,6 +152,7 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         )
         self._batch = AccountBatchCoordinator()
         self._docker_pull = DockerPullCoordinator()
+        self._snowluma_image_switch = SnowLumaImageSwitchCoordinator()
         self._snowluma_auto_login_tasks: dict[str, asyncio.Task[None]] = {}
 
     def _protocol_runtime_backend(
@@ -2389,7 +2391,12 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         return self._compose_account_state(account_id, account)
 
     async def _start_account_snowluma_linux_docker(
-        self, account_id: str, account: dict, runtime: NapCatRuntime
+        self,
+        account_id: str,
+        account: dict,
+        runtime: NapCatRuntime,
+        *,
+        ensure_image: bool = True,
     ) -> dict:
         be = self._protocol_runtime_backend(account)
         from .snowluma_docker import (
@@ -2405,12 +2412,13 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
             account=account,
             runtime=sl_runtime,
         )
-        built, build_error = await asyncio.to_thread(
-            ensure_snowluma_docker_image,
-            base_image=run_image,
-        )
-        if not built:
-            raise ValueError(build_error)
+        if ensure_image:
+            built, build_error = await asyncio.to_thread(
+                ensure_snowluma_docker_image,
+                base_image=run_image,
+            )
+            if not built:
+                raise ValueError(build_error)
 
         await self._remove_both_linux_docker_container_names_for_account(account)
         if os.name == "nt":
