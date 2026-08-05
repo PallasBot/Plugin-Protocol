@@ -162,6 +162,10 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         slug = (str(raw).strip() if raw is not None else "") or DEFAULT_PROTOCOL_BACKEND
         return make_protocol_runtime_backend(self, slug)
 
+    def default_protocol_backend(self) -> str:
+        raw = str(getattr(self._config, "pallas_protocol_default_backend", "") or "").strip().lower()
+        return raw if raw in (DEFAULT_PROTOCOL_BACKEND, SNOWLUMA_PROTOCOL_BACKEND) else DEFAULT_PROTOCOL_BACKEND
+
     def effective_runtime_program_dir(self) -> Path | None:
         configured = str(getattr(self._config, "pallas_protocol_program_dir", "")).strip()
         if configured:
@@ -192,6 +196,7 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
             ).strip()
             or "motricseven7/snowluma:latest",
             "follow_bot_lifecycle": bool(getattr(self._config, "pallas_protocol_follow_bot_lifecycle", True)),
+            "default_protocol_backend": self.default_protocol_backend(),
         }
         if not self._runtime_profile_path.exists():
             return default
@@ -222,6 +227,7 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
             "docker_image": image,
             "snowluma_docker_image": snow_image,
             "follow_bot_lifecycle": follow,
+            "default_protocol_backend": self.default_protocol_backend(),
         }
 
     def _apply_runtime_profile_to_config(self, profile: dict[str, object] | None = None) -> None:
@@ -1630,7 +1636,11 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
                 "或开启分片后配置 PALLAS_SHARD_WORKER_BASE_PORT / PALLAS_SHARD_WS_HOST。"
             )
         disp = str(payload.get("display_name", "")).strip()
-        proto_backend = str(payload.get(ACCOUNT_PROTOCOL_BACKEND_KEY, "") or "").strip() or DEFAULT_PROTOCOL_BACKEND
+        proto_backend = str(payload.get(ACCOUNT_PROTOCOL_BACKEND_KEY, "") or "").strip().lower()
+        if not proto_backend:
+            proto_backend = self.default_protocol_backend()
+        if proto_backend not in (DEFAULT_PROTOCOL_BACKEND, SNOWLUMA_PROTOCOL_BACKEND):
+            raise ValueError("protocol_backend 仅支持 napcat 或 snowluma")
         account = {
             "id": account_id,
             "display_name": disp or account_id,
@@ -1963,7 +1973,9 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
             elif not shared_snowluma_runtime:
                 await self._remove_both_linux_docker_container_names_for_account(account)
             if runtime:
-                if old_backend == DEFAULT_PROTOCOL_BACKEND:
+                if old_backend == DEFAULT_PROTOCOL_BACKEND and "/runtimes/" not in str(
+                    account.get("account_data_dir", "") or ""
+                ):
                     napcat_data_dir = str(account.get("account_data_dir", "") or "").strip()
                     if napcat_data_dir:
                         account["napcat_account_data_dir"] = napcat_data_dir

@@ -351,6 +351,25 @@ async def test_switch_account_to_new_snowluma_runtime_creates_and_binds() -> Non
 
 
 @pytest.mark.asyncio
+async def test_switch_account_does_not_store_a_snowluma_directory_as_napcat_data() -> None:
+    service, account = make_service()
+    account["account_data_dir"] = "/tmp/runtimes/sl-rt-stale"
+
+    await service.switch_account_runtime(
+        "10001", {"protocol_backend": SNOWLUMA_PROTOCOL_BACKEND, "runtime_mode": "new"}
+    )
+
+    assert "napcat_account_data_dir" not in account
+
+
+def test_default_protocol_backend_reads_plugin_config() -> None:
+    service, _ = make_service()
+    service._config = SimpleNamespace(pallas_protocol_default_backend=SNOWLUMA_PROTOCOL_BACKEND)
+
+    assert service.default_protocol_backend() == SNOWLUMA_PROTOCOL_BACKEND
+
+
+@pytest.mark.asyncio
 async def test_switch_account_to_new_snowluma_runtime_syncs_docker_host_ports() -> None:
     service, account = make_service(allocate_ports=True)
 

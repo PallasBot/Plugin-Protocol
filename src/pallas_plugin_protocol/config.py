@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pallas.api.config import field_help, install_hot_reload_config, plugin_config_proxy
 from pydantic import BaseModel, ConfigDict, Field
@@ -61,6 +61,14 @@ class Config(BaseModel):
             "仅本机访问用 127.0.0.1；需局域网访问可改为 0.0.0.0",
         ),
         json_schema_extra=_ui("开关与挂载", 50),
+    )
+    pallas_protocol_default_backend: Literal["napcat", "snowluma"] = Field(
+        default="napcat",
+        description=field_help(
+            "新建账号默认协议端",
+            "控制台新建账号和「创建牛牛」未指定类型时使用；不会迁移已有账号",
+        ),
+        json_schema_extra=_ui("开关与挂载", 55, label="新建账号默认协议端"),
     )
     pallas_protocol_default_command: str = Field(
         default="node",
