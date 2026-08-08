@@ -864,7 +864,7 @@ class LaunchManager:
             from .snowluma_docker import snowluma_docker_volume_paths
 
             note += (
-                " Linux/Docker：数据绑定到容器 /app/snowluma-data、/app/.config、/app/.local/share；"
+                " Linux/Docker：数据绑定到容器 /app/data、/app/.config、/app/.local/share；"
                 "宿主机目录见 instances/…/docker/snowluma/。"
             )
             paths.extend(str(p.resolve()) for p in snowluma_docker_volume_paths(account))

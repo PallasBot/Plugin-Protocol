@@ -153,7 +153,7 @@ def snowluma_rebuild_tags(base_image: str | None = None) -> list[str]:
 
 
 def snowluma_docker_build_argv(tags: list[str]) -> list[str]:
-    argv = ["docker", "build"]
+    argv = ["docker", "build", "--pull"]
     for tag in tags:
         t = str(tag or "").strip()
         if t:
@@ -609,7 +609,7 @@ def build_snowluma_docker_run_argv_for_runtime(
         "-e",
         "SNOWLUMA_HOOK_AUTOLOAD=1",
         "-v",
-        f"{data_dir}:/app/snowluma-data",
+        f"{data_dir}:/app/data",
         "-v",
         f"{cfg_dir}:/app/.config",
         "-v",

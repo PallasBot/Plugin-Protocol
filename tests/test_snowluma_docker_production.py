@@ -133,6 +133,8 @@ def test_build_snowluma_docker_run_argv_includes_memory_limits(tmp_path: Path) -
     assert "SNOWLUMA_ACCEPT_PRIVACY=1" in argv
     assert "SNOWLUMA_HOOK_AUTOLOAD=1" in argv
     assert any(str(item).startswith("SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD=") for item in argv)
+    assert any(str(item).endswith(":/app/data") for item in argv)
+    assert not any(str(item).endswith(":/app/snowluma-data") for item in argv)
     assert any("/docker/snowluma/qq-homes:/app/qq-homes" in str(item) for item in argv)
     assert not any(str(item).startswith("SNOWLUMA_EXTRA_QQ_HOMES=") for item in argv)
 
@@ -278,7 +280,7 @@ def test_rebuild_snowluma_docker_image_dual_tags_latest_and_version(monkeypatch)
     assert ok is True
     assert len(calls) == 2
     build_argv = calls[1][0]
-    assert build_argv[0:3] == ["docker", "build", "--tag"]
+    assert build_argv[0:3] == ["docker", "build", "--pull"]
     assert "pallas/snowluma-auto-login:latest" in build_argv
     assert "pallas/snowluma-auto-login:v1.12.9" in build_argv
     assert "FROM motricseven7/snowluma:latest" in str(calls[1][1])
@@ -300,6 +302,7 @@ def test_rebuild_snowluma_docker_image_forces_build_with_pulled_base(monkeypatch
     assert calls[0][0] == [
         "docker",
         "build",
+        "--pull",
         "--tag",
         "pallas/snowluma-auto-login:nightly",
         "-",
