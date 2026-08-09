@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -20,6 +20,19 @@ if TYPE_CHECKING:
 
 def snowluma_process_track_key(runtime_id: str) -> str:
     return f"slrt:{str(runtime_id or '').strip()}"
+
+
+def parse_snowluma_runtime_timestamp(value: object) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 class SnowLumaRuntimeOpsMixin:
@@ -276,6 +289,101 @@ class SnowLumaRuntimeOpsMixin:
         if not item:
             return None
         return self._compose_snowluma_runtime_state(item)
+
+    def refresh_snowluma_runtime_ws_state(
+        self: PallasProtocolService,
+        runtime_id: str,
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        runtime = self._sl_runtime_registry.get(runtime_id)
+        if not runtime:
+            return False
+        current = now or datetime.now(UTC)
+        members = self.snowluma_runtime_members(runtime_id)
+        if any(self._is_bot_connected(self._accounts[account_id]) for account_id in members):
+            self._sl_runtime_registry.update(
+                runtime_id,
+                {
+                    "last_ws_connected_at": current.isoformat(),
+                    "ws_disconnected_since_at": None,
+                },
+            )
+            return True
+        disconnected_since = parse_snowluma_runtime_timestamp(runtime.get("ws_disconnected_since_at"))
+        if disconnected_since is None:
+            disconnected_since = parse_snowluma_runtime_timestamp(runtime.get("last_ws_connected_at")) or current
+            self._sl_runtime_registry.update(
+                runtime_id,
+                {"ws_disconnected_since_at": disconnected_since.isoformat()},
+            )
+        return False
+
+    async def cleanup_stale_snowluma_runtime_containers(
+        self: PallasProtocolService,
+        *,
+        now: datetime | None = None,
+    ) -> list[str]:
+        from . import snowluma_docker
+
+        current = now or datetime.now(UTC)
+        removed: list[str] = []
+        for runtime in self._sl_runtime_registry.list_runtimes():
+            runtime_id = str(runtime.get("id") or "").strip()
+            if not runtime_id:
+                continue
+            members = self.snowluma_runtime_members(runtime_id)
+            uses_docker = any(
+                bool((self._accounts.get(account_id) or {}).get("snowluma_linux_docker")) for account_id in members
+            )
+            if not uses_docker:
+                continue
+            if self.refresh_snowluma_runtime_ws_state(runtime_id, now=current):
+                continue
+            refreshed = self._sl_runtime_registry.get(runtime_id)
+            if not refreshed:
+                continue
+            disconnected_since = parse_snowluma_runtime_timestamp(refreshed.get("ws_disconnected_since_at"))
+            if disconnected_since is None or current - disconnected_since < timedelta(days=3):
+                continue
+            await snowluma_docker.snowluma_docker_remove_force(
+                snowluma_docker.snowluma_docker_container_name_for_runtime(refreshed)
+            )
+            runtimes = getattr(self, "_runtimes", None)
+            if isinstance(runtimes, dict):
+                runtimes.pop(snowluma_process_track_key(runtime_id), None)
+            removed.append(runtime_id)
+        return removed
+
+    def schedule_snowluma_stale_cleanup(self: PallasProtocolService) -> None:
+        existing = getattr(self, "_snowluma_stale_cleanup_task", None)
+        if existing is not None and not existing.done():
+            return
+
+        async def run() -> None:
+            from nonebot import logger
+
+            while True:
+                try:
+                    removed = await self.cleanup_stale_snowluma_runtime_containers()
+                    if removed:
+                        logger.warning(
+                            "Pallas-Bot 协议端: 已回收连续 3 天未连接 WS 的 SnowLuma Runtime 容器: {}",
+                            removed,
+                        )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("Pallas-Bot 协议端: SnowLuma Runtime 空闲容器回收失败")
+                await asyncio.sleep(3600)
+
+        self._snowluma_stale_cleanup_task = asyncio.create_task(run())
+
+    def cancel_snowluma_stale_cleanup(self: PallasProtocolService) -> None:
+        task = getattr(self, "_snowluma_stale_cleanup_task", None)
+        if task is not None and not task.done():
+            task.cancel()
+        self._snowluma_stale_cleanup_task = None
 
     def _compose_snowluma_runtime_state(self: PallasProtocolService, runtime: dict) -> dict:
         rid = str(runtime.get("id", ""))

@@ -107,6 +107,8 @@ class SnowLumaRuntimeRegistry:
             "legacy_container_account_id",
             "program_dir",
             "snowluma_docker_image",
+            "last_ws_connected_at",
+            "ws_disconnected_since_at",
         ):
             if key not in payload:
                 continue
@@ -138,6 +140,8 @@ class SnowLumaRuntimeRegistry:
             "legacy_container_account_id",
             "program_dir",
             "snowluma_docker_image",
+            "last_ws_connected_at",
+            "ws_disconnected_since_at",
         )
         for key in editable:
             if key not in payload:
@@ -150,6 +154,8 @@ class SnowLumaRuntimeRegistry:
                     "legacy_container_account_id",
                     "snowluma_managed_webui_password",
                     "snowluma_docker_image",
+                    "last_ws_connected_at",
+                    "ws_disconnected_since_at",
                 ):
                     item.pop(key, None)
                 continue

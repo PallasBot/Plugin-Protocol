@@ -3,6 +3,13 @@
 本文件依据 git tag 历史整理，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 新提交合入后请在 `## [Unreleased]` 下记录，发布时随版本 tag 归档。
 
+## [4.0.58] - 2026-08-10
+
+### 更新公告
+
+- SnowLuma Runtime 保持用户选择的上游 Docker 镜像；已有 Runtime 可保存为下次启动采用指定镜像，当前容器不会因此重启。
+- Docker Runtime 连续 3 天没有任一账号的 Bot WS 连接时，会仅回收容器，保留账号、Runtime 注册和数据目录。
+
 ## [4.0.57] - 2026-08-08
 
 ### 更新公告

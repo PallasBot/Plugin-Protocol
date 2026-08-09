@@ -76,6 +76,10 @@ async def _startup() -> None:
         return
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     await manager.initialize()
+    from pallas.api.platform import is_sharded_worker
+
+    if not is_sharded_worker():
+        manager.schedule_snowluma_stale_cleanup()
     logger.info("Pallas-Bot 协议端 | 管理入口=/pallas/protocol（旧 /protocol/console 仅兼容跳转）")
     profile = manager.runtime_profile()
     if bool(profile.get("follow_bot_lifecycle", True)):
@@ -86,6 +90,7 @@ async def _startup() -> None:
 async def _shutdown() -> None:
     if not plugin_config.pallas_protocol_enabled:
         return
+    manager.cancel_snowluma_stale_cleanup()
     profile = manager.runtime_profile()
     if not bool(profile.get("follow_bot_lifecycle", True)):
         return
