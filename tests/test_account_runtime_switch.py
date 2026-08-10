@@ -183,6 +183,21 @@ def make_service(
 
 
 @pytest.mark.asyncio
+async def test_update_account_display_name_only_skips_runtime_and_config_work() -> None:
+    service, account = make_service()
+    service._napcat_core_running = lambda account_id, item=None: service.calls.append("running-check") or False
+
+    result = await service.update_account("10001", {"display_name": "新昵称"}, restart=False)
+
+    assert account["display_name"] == "新昵称"
+    assert result["account"]["display_name"] == "新昵称"
+    assert result["restarted"] is False
+    assert result["needs_restart"] is False
+    assert result["hot_reload"] is None
+    assert service.calls == ["save"]
+
+
+@pytest.mark.asyncio
 async def test_update_snowluma_ws_settings_hot_reloads_without_restart(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

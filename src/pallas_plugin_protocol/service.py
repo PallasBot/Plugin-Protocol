@@ -1702,6 +1702,20 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
         account = self._accounts.get(account_id)
         if not account:
             raise KeyError("账号不存在")
+        if set(payload) == {"display_name"}:
+            account["display_name"] = (
+                str(payload.get("display_name") or "").strip()
+                or str(account.get("qq") or account.get("id") or account_id).strip()
+                or account_id
+            )
+            account["updated_at"] = datetime.now(UTC).isoformat()
+            self._save_accounts()
+            return {
+                "account": self._compose_account_state(account_id, account),
+                "restarted": False,
+                "needs_restart": False,
+                "hot_reload": None,
+            }
         old_backend = str(account.get(ACCOUNT_PROTOCOL_BACKEND_KEY) or DEFAULT_PROTOCOL_BACKEND).strip().lower()
         old_backend = old_backend or DEFAULT_PROTOCOL_BACKEND
         need_restart = self._napcat_core_running(account_id, account)
