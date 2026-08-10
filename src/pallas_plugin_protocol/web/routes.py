@@ -478,6 +478,14 @@ def register_pallas_protocol_routes(
             raise HTTPException(status_code=400, detail="protocol 仅支持 napcat、snowluma 或省略")
         return await manager.start_docker_pull_job(image or None, protocol=protocol or None)
 
+    @app.get(f"{base}/api/runtime/docker/capability")
+    async def runtime_docker_capability(
+        token: str | None = Query(default=None),
+        x_pallas_protocol_token: str | None = Header(default=None, alias="X-Pallas-Protocol-Token"),
+    ):
+        _auth(x_pallas_protocol_token, token)
+        return {"capability": await manager.docker_capability()}
+
     @app.get(f"{base}/api/runtime/docker/pull/{{job_id}}")
     async def runtime_docker_pull_status(
         job_id: str,

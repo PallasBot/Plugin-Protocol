@@ -48,6 +48,7 @@ from .contract import (
 )
 from .docker_cli import (
     docker_repository_from_ref,
+    probe_docker_capability,
 )
 from .docker_cli import (
     docker_stderr_suggests_container_name_conflict as _docker_stderr_suggests_container_name_conflict,
@@ -512,6 +513,9 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
     def docker_pull_coordinator(self) -> DockerPullCoordinator:
         return self._docker_pull
 
+    async def docker_capability(self) -> dict[str, str | bool]:
+        return (await probe_docker_capability()).to_dict()
+
     async def start_docker_pull_job(
         self,
         image: str | None = None,
@@ -539,15 +543,12 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
     async def _run_docker_pull_job(self, job: DockerPullJobState) -> None:
         img = job.image
         proto = job.protocol
-        if not shutil.which("docker"):
+        capability = await probe_docker_capability()
+        if not capability.ready:
             job.status = "failed"
             job.phase = "failed"
             job.code = -1
-            msg = (
-                "未找到 docker 命令。默认 Bot 容器镜像不含 Docker CLI，且 compose 未挂载 docker.sock；"
-                "可在宿主机执行 docker pull 拉取 NapCat/SnowLuma 镜像，或按 docker-compose.yml 注释挂载 socket "
-                "并在镜像内安装 docker CLI。"
-            )
+            msg = capability.message
             self._docker_pull.append_line(job, msg, percent=100, force_emit=True)
             job.message = msg
             job.finished_at = datetime.now(UTC).isoformat()

@@ -3,8 +3,71 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Literal
+
+DockerCapabilityStatus = Literal[
+    "ready",
+    "cli_missing",
+    "socket_missing",
+    "permission_denied",
+    "daemon_unreachable",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class DockerCapability:
+    status: DockerCapabilityStatus
+    ready: bool
+    message: str
+    server_version: str = ""
+
+    def to_dict(self) -> dict[str, str | bool]:
+        return {
+            "status": self.status,
+            "ready": self.ready,
+            "message": self.message,
+            "server_version": self.server_version,
+        }
+
+
+async def probe_docker_capability(*, socket_path: Path | None = None) -> DockerCapability:
+    if not shutil.which("docker"):
+        return DockerCapability("cli_missing", False, "未找到 Docker CLI；请使用官方镜像或在宿主机手动执行")
+
+    local_socket = socket_path or Path("/var/run/docker.sock")
+    if not os.environ.get("DOCKER_HOST") and not local_socket.exists():
+        return DockerCapability(
+            "socket_missing",
+            False,
+            f"未找到 {local_socket}；容器部署请显式挂载 docker.sock",
+        )
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "docker",
+            "info",
+            "--format",
+            "{{json .ServerVersion}}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await process.communicate()
+    except OSError as err:
+        return DockerCapability("daemon_unreachable", False, f"无法连接 Docker daemon：{err}")
+
+    if process.returncode != 0:
+        detail = (stderr or stdout or b"").decode("utf-8", errors="replace").strip()
+        if "permission denied" in detail.lower():
+            return DockerCapability("permission_denied", False, f"没有访问 Docker daemon 的权限：{detail}")
+        return DockerCapability("daemon_unreachable", False, f"无法连接 Docker daemon：{detail or 'docker info 失败'}")
+
+    version = (stdout or b"").decode("utf-8", errors="replace").strip().strip('"')
+    return DockerCapability("ready", True, "Docker daemon 可用", server_version=version)
 
 
 def docker_repository_from_ref(ref: str) -> str:
@@ -91,8 +154,9 @@ def docker_inspect_running_sync(name: str) -> bool:
 
 async def docker_command_strict_async(*args: str, wait_timeout: int = 120) -> str:
     """执行 Docker 命令并在不可用、超时或失败时保留 stderr 抛错。"""
-    if not shutil.which("docker"):
-        raise RuntimeError("Docker 不可用：未找到 docker 可执行文件")
+    capability = await probe_docker_capability()
+    if not capability.ready:
+        raise RuntimeError(capability.message)
     try:
         proc = await asyncio.create_subprocess_exec(
             "docker",

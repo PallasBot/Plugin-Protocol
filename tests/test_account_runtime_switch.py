@@ -595,3 +595,28 @@ async def test_switch_rolls_back_account_and_new_runtime_when_start_fails() -> N
     assert account == snapshot
     assert service._sl_runtime_registry.deleted == ["sl-rt-new"]
     assert service.started == ["10001"]
+
+
+@pytest.mark.asyncio
+async def test_docker_pull_job_records_capability_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = PallasProtocolService.__new__(PallasProtocolService)
+    service._docker_pull = service_module.DockerPullCoordinator()
+    job = service_module.DockerPullJobState(
+        job_id="job-1",
+        protocol="napcat",
+        image="mlikiowa/napcat-docker:latest",
+    )
+    service._docker_pull._jobs[job.job_id] = job
+
+    async def missing_socket() -> SimpleNamespace:
+        return SimpleNamespace(ready=False, message="未找到 /var/run/docker.sock")
+
+    monkeypatch.setattr(service_module, "probe_docker_capability", missing_socket)
+
+    await service._run_docker_pull_job(job)
+
+    assert job.status == "failed"
+    assert job.phase == "failed"
+    assert job.progress_percent == 100
+    assert "docker.sock" in job.message
+    assert "docker.sock" in job.output
