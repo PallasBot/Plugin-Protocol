@@ -362,7 +362,7 @@ class AccountBatchCoordinator:
                 logger.info(
                     format_plugin_event(
                         "batch_accounts",
-                        f"Batch {action.value} for {len(account_ids)} account(s) completed (failed={failed})",
+                        f"Batch {action.value} for {len(account_ids)} account(s) completed, failed [{failed}]",
                     )
                 )
         except asyncio.CancelledError:
@@ -385,6 +385,7 @@ class AccountBatchCoordinator:
                 logger.warning(
                     format_plugin_event(
                         "batch_accounts",
-                        f"Batch {action.value} for {len(account_ids)} account(s) failed ({type(e).__name__}: {e})",
+                        f"Batch {action.value} for {len(account_ids)} account(s) failed, "
+                        f"error [{type(e).__name__}: {e}]",
                     )
                 )
