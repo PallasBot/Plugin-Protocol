@@ -1,7 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 
-from nonebot import on_command
+from nonebot import logger, on_command
 from nonebot.adapters.onebot.v11 import (
     Bot,
     Message,
@@ -14,6 +14,7 @@ from nonebot.permission import SUPERUSER
 from nonebot.plugin import PluginMetadata
 from nonebot.typing import T_State
 from pallas.api.config import user_is_bot_admin
+from pallas.api.logging import format_plugin_event
 from pallas.api.metadata import (
     PLUGIN_EXTRA_VERSION,
     PLUGIN_HOMEPAGE,
@@ -205,6 +206,12 @@ async def _relogin_got_nickname(
         try:
             protocol_manager.create_account({"qq": qq, "display_name": nickname, "enabled": True})
             await reply_private_message(bot, event, f"已创建 {nickname} 并继续上号流程。")
+            logger.info(
+                format_plugin_event(
+                    "account_create",
+                    f"Bot [{bot.self_id}] created account [{qq}] during relogin",
+                )
+            )
         except Exception as e:
             await relogin_cmd.finish(f"自动创建协议端失败：{e}")
 
@@ -230,6 +237,13 @@ async def _relogin_got_nickname(
         await reply_private_message(bot, event, MessageSegment.image(qr_bytes))
     except OSError as e:
         await relogin_cmd.finish(f"二维码读取失败：{e}")
+
+    logger.info(
+        format_plugin_event(
+            "relogin",
+            f"Bot [{bot.self_id}] restarted account [{qq}] and pushed its login QR",
+        )
+    )
 
 
 @create_cmd.handle()
@@ -317,6 +331,13 @@ async def _create_got_owners(
         await protocol_manager.start_account(qq)
     except Exception as e:
         await create_cmd.finish(f"账号已创建，但启动失败：{e}")
+
+    logger.info(
+        format_plugin_event(
+            "account_create",
+            f"Bot [{bot.self_id}] created and started account [{qq}]",
+        )
+    )
 
     owner_ids = [int(oq) for oq in owner_qqs]
     try:

@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import httpx
+from pallas.api.logging import format_plugin_event
 from pallas.api.paths import resource_dir
 
 from .account_batch import AccountBatchCoordinator
@@ -1061,8 +1062,10 @@ class PallasProtocolService(SnowLumaRuntimeOpsMixin):
                         return
                     # Hook 由 SnowLuma HOOK_AUTOLOAD 负责；勿再经 WebUI 登录注入（易 429）
                     logger.info(
-                        "Pallas-Bot 协议端: {} 一键登录后 Bot 已连接（依赖 SnowLuma 自动注入 Hook）",
-                        account_id,
+                        format_plugin_event(
+                            "account_reconnect",
+                            f"Account [{account_id}] reconnected via quick login",
+                        )
                     )
                 elif mode == "qrcode":
                     logger.info(

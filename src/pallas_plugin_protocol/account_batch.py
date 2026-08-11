@@ -11,6 +11,9 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from nonebot import logger
+from pallas.api.logging import format_plugin_event
+
 AccountActionFn = Callable[[str], Awaitable[object | None]]
 
 
@@ -356,6 +359,12 @@ class AccountBatchCoordinator:
                 job.finished_at = datetime.now(UTC).isoformat()
                 job.message = f"完成 {job.total - failed}/{job.total}" + (f"，{failed} 个失败" if failed else "")
                 self._emit(job_id)
+                logger.info(
+                    format_plugin_event(
+                        "batch_accounts",
+                        f"Batch {action.value} for {len(account_ids)} account(s) completed (failed={failed})",
+                    )
+                )
         except asyncio.CancelledError:
             job = self._jobs.get(job_id)
             if job:
@@ -373,3 +382,9 @@ class AccountBatchCoordinator:
                 job.finished_at = datetime.now(UTC).isoformat()
                 job.message = f"{type(e).__name__}: {e}"
                 self._emit(job_id)
+                logger.warning(
+                    format_plugin_event(
+                        "batch_accounts",
+                        f"Batch {action.value} for {len(account_ids)} account(s) failed ({type(e).__name__}: {e})",
+                    )
+                )
