@@ -2,6 +2,7 @@ import logging
 
 from nonebot import get_app, get_driver, logger
 from nonebot.plugin import PluginMetadata
+from pallas.api.logging import register_plugin_startup_ready
 from pallas.api.metadata import (
     PLUGIN_EXTRA_VERSION,
     PLUGIN_HOMEPAGE,
@@ -80,7 +81,7 @@ async def _startup() -> None:
 
     if not is_sharded_worker():
         manager.schedule_snowluma_stale_cleanup()
-    logger.info("Pallas-Bot 协议端 | 管理入口=/pallas/protocol（旧 /protocol/console 仅兼容跳转）")
+    register_plugin_startup_ready("protocol", detail="协议端已就绪")
     profile = manager.runtime_profile()
     if bool(profile.get("follow_bot_lifecycle", True)):
         await manager.start_all_enabled_accounts()

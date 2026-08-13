@@ -325,7 +325,7 @@ def ensure_snowluma_qq_process_for_uin(
         active_pid = existing_pids[-1]
         for stale_pid in existing_pids[:-1]:
             logger.warning(
-                "SnowLuma 容器 %s 发现 UIN %s 重复 QQ 进程，清理孤儿 pid=%s，保留 pid=%s",
+                "SnowLuma 容器 [{}] 发现 UIN [{}] 重复 QQ 进程，清理孤儿 pid [{}]、保留 pid [{}]",
                 container_name,
                 target,
                 stale_pid,
@@ -505,7 +505,7 @@ def stop_snowluma_qq_process_for_uin(
         still = _current_pid()
         if not still:
             logger.info(
-                "SnowLuma 容器 %s 已经 supervisorctl 停止 UIN %s QQ（program=%s 原 pid=%s）",
+                "SnowLuma 容器 [{}] 已由 supervisorctl 停止 UIN [{}] 的 QQ（program [{}]、原 pid [{}]）",
                 container_name,
                 target,
                 program,
@@ -514,7 +514,7 @@ def stop_snowluma_qq_process_for_uin(
             return True, original_pid, ""
         # supervisor 已 STOPPED，但 QQ --relaunch 常变成 ppid=1 孤儿，需补刀
         logger.warning(
-            "SnowLuma 容器 %s supervisorctl stop %s 后仍有 QQ pid=%s，尝试强制结束",
+            "SnowLuma 容器 [{}] supervisorctl stop [{}] 后仍有 QQ pid [{}]，尝试强制结束",
             container_name,
             program,
             still,
@@ -529,7 +529,7 @@ def stop_snowluma_qq_process_for_uin(
         cur = _current_pid()
         if not cur:
             logger.info(
-                "SnowLuma 容器 %s 已停止 UIN %s 的 QQ 进程（原 pid=%s）",
+                "SnowLuma 容器 [{}] 已停止 UIN [{}] 的 QQ 进程（原 pid [{}]）",
                 container_name,
                 target,
                 original_pid,
@@ -545,7 +545,7 @@ def stop_snowluma_qq_process_for_uin(
     if still:
         return False, still, f"未能停止 QQ 进程 pid={still}"
     logger.info(
-        "SnowLuma 容器 %s 已停止 UIN %s 的 QQ 进程 pid=%s",
+        "SnowLuma 容器 [{}] 已停止 UIN [{}] 的 QQ 进程 pid [{}]",
         container_name,
         target,
         original_pid,
