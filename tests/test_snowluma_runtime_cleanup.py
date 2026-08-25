@@ -25,6 +25,11 @@ async def test_cleanup_removes_container_after_three_days_without_ws(monkeypatch
     })
     service._is_bot_connected = lambda _account: False
     removed: list[str] = []
+    names: list[str] = []
+
+    def exists(name: str) -> bool:
+        names.append(name)
+        return True
 
     async def remove(name: str) -> None:
         removed.append(name)
@@ -33,11 +38,51 @@ async def test_cleanup_removes_container_after_three_days_without_ws(monkeypatch
         "pallas_plugin_protocol.snowluma_docker.snowluma_docker_remove_force",
         remove,
     )
+    monkeypatch.setattr(
+        "pallas_plugin_protocol.snowluma_docker.snowluma_docker_container_exists_sync",
+        exists,
+    )
 
     assert await service.cleanup_stale_snowluma_runtime_containers() == [runtime["id"]]
     assert service._sl_runtime_registry.get(runtime["id"]) is not None
     assert service._accounts[account["id"]] is account
     assert removed == ["pallas-proto-sl-rt-sl-rt-stale"]
+    assert names == ["pallas-proto-sl-rt-sl-rt-stale"]
+
+
+@pytest.mark.asyncio
+async def test_cleanup_skips_already_removed_container(monkeypatch) -> None:
+    runtime = {
+        "id": "sl-rt-gone",
+        "data_dir": "/tmp/gone",
+        "webui_port": 6200,
+        "last_ws_connected_at": (datetime.now(UTC) - timedelta(days=3)).isoformat(),
+    }
+    service, account = make_service(runtime)
+    account.update({
+        "protocol_backend": SNOWLUMA_PROTOCOL_BACKEND,
+        "snowluma_runtime_id": runtime["id"],
+        "snowluma_linux_docker": True,
+    })
+    service._is_bot_connected = lambda _account: False
+    removed: list[str] = []
+
+    async def remove(name: str) -> None:
+        removed.append(name)
+
+    monkeypatch.setattr(
+        "pallas_plugin_protocol.snowluma_docker.snowluma_docker_remove_force",
+        remove,
+    )
+    monkeypatch.setattr(
+        "pallas_plugin_protocol.snowluma_docker.snowluma_docker_container_exists_sync",
+        lambda name: False,
+    )
+
+    assert await service.cleanup_stale_snowluma_runtime_containers() == []
+    assert removed == []
+    assert service._sl_runtime_registry.get(runtime["id"]) is not None
+    assert service._accounts[account["id"]] is account
 
 
 @pytest.mark.asyncio

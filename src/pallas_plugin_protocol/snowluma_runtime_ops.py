@@ -346,13 +346,14 @@ class SnowLumaRuntimeOpsMixin:
             disconnected_since = parse_snowluma_runtime_timestamp(refreshed.get("ws_disconnected_since_at"))
             if disconnected_since is None or current - disconnected_since < timedelta(days=3):
                 continue
-            await snowluma_docker.snowluma_docker_remove_force(
-                snowluma_docker.snowluma_docker_container_name_for_runtime(refreshed)
-            )
+            container_name = snowluma_docker.snowluma_docker_container_name_for_runtime(refreshed)
+            # 容器在 Docker 里仍存在才回收并计入日志；已被清掉的不再重复回收刷屏。
+            if snowluma_docker.snowluma_docker_container_exists_sync(container_name):
+                await snowluma_docker.snowluma_docker_remove_force(container_name)
+                removed.append(runtime_id)
             runtimes = getattr(self, "_runtimes", None)
             if isinstance(runtimes, dict):
                 runtimes.pop(snowluma_process_track_key(runtime_id), None)
-            removed.append(runtime_id)
         return removed
 
     def schedule_snowluma_stale_cleanup(self: PallasProtocolService) -> None:

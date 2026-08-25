@@ -152,6 +152,25 @@ def docker_inspect_running_sync(name: str) -> bool:
     return "true" in (r.stdout or "").lower()
 
 
+def docker_container_exists_sync(name: str) -> bool:
+    """容器是否已存在（含已停止）；不存在或 Docker 不可用时返回 False。"""
+    if not shutil.which("docker"):
+        return False
+    try:
+        r = subprocess.run(
+            ["docker", "ps", "-aq", "--filter", f"name=^{name}$"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=6,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if r.returncode != 0:
+        return False
+    return bool((r.stdout or "").strip())
+
+
 async def docker_command_strict_async(*args: str, wait_timeout: int = 120) -> str:
     """执行 Docker 命令并在不可用、超时或失败时保留 stderr 抛错。"""
     capability = await probe_docker_capability()

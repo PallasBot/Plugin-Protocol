@@ -16,6 +16,7 @@ snowluma_docker_container_running = docker_cli.docker_inspect_running_async
 snowluma_docker_container_running_sync = docker_cli.docker_inspect_running_sync
 snowluma_docker_remove_force = docker_cli.docker_rm_force_async
 snowluma_docker_remove_force_sync = docker_cli.docker_rm_force_sync
+snowluma_docker_container_exists_sync = docker_cli.docker_container_exists_sync
 
 SNOWLUMA_DOCKER_BASE_IMAGE = "motricseven7/snowluma:latest"
 SNOWLUMA_DOCKER_BASE_REPO = "motricseven7/snowluma"
@@ -189,6 +190,7 @@ __all__ = [
     "snowluma_docker_build_argv",
     "snowluma_docker_container_name",
     "snowluma_docker_container_name_for_runtime",
+    "snowluma_docker_container_exists_sync",
     "snowluma_docker_container_running",
     "snowluma_docker_container_running_sync",
     "snowluma_docker_effective_host_novnc_port",

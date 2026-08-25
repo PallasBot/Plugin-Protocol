@@ -33,12 +33,15 @@ _PALLAS_UTILS.github_release_asset_url = lambda *args, **kwargs: ""
 _PALLAS_UTILS.StreamDownloadProgress = dict
 _PALLAS_UTILS.format_download_byte_size = lambda value: str(value)
 _PALLAS_UTILS.sync_stream_download_to_file = lambda *args, **kwargs: None
+_PALLAS_LOGGING = types.ModuleType("pallas.api.logging")
+_PALLAS_LOGGING.format_plugin_event = lambda event_type, message: f"{event_type}: {message}"
 sys.modules.update({
     "pallas": _PALLAS,
     "pallas.api": _PALLAS_API,
     "pallas.api.paths": _PALLAS_PATHS,
     "pallas.api.config": _PALLAS_CONFIG,
     "pallas.api.utils": _PALLAS_UTILS,
+    "pallas.api.logging": _PALLAS_LOGGING,
 })
 
 import pallas_plugin_protocol.service as service_module  # noqa: E402
