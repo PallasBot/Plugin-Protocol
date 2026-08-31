@@ -9,6 +9,7 @@ from nonebot.adapters.onebot.v11 import (
     MessageSegment,
     PrivateMessageEvent,
 )
+from nonebot.internal.permission import Permission
 from nonebot.params import ArgPlainText, CommandArg
 from nonebot.permission import SUPERUSER
 from nonebot.plugin import PluginMetadata
@@ -126,12 +127,47 @@ relogin_cmd = on_command(
     block=True,
     permission=private_message_permission_for_command("relogin.relogin"),
 )
+
+
+def bot_session_id(bot: Bot, event: MessageEvent) -> tuple[str, str]:
+    """Return the session identity used by direct multi-step commands."""
+    return str(bot.self_id), str(event.get_user_id())
+
+
+async def _reject_foreign_session() -> bool:
+    return False
+
+
+def _session_permission_updater(bot: Bot, event: MessageEvent, state: T_State) -> Permission:
+    expected = state.get("_bot_session_id")
+    if (
+        expected != bot_session_id(bot, event)
+        or state.get("_session_command") != "relogin"
+        or (event.get_plaintext() or "").strip().startswith("创建牛牛")
+    ):
+        return Permission(_reject_foreign_session)
+    return private_message_permission_for_command("relogin.relogin")
+
+
+def _create_session_permission_updater(bot: Bot, event: MessageEvent, state: T_State) -> Permission:
+    expected = state.get("_bot_session_id")
+    if (
+        expected != bot_session_id(bot, event)
+        or state.get("_session_command") != "create"
+        or (event.get_plaintext() or "").strip().startswith("牛牛重新上号")
+    ):
+        return Permission(_reject_foreign_session)
+    return private_message_permission_for_command("relogin.create")
+
+
+relogin_cmd.permission_updater(_session_permission_updater)
 create_cmd = on_command(
     "创建牛牛",
     priority=5,
     block=True,
     permission=private_message_permission_for_command("relogin.create"),
 )
+create_cmd.permission_updater(_create_session_permission_updater)
 
 _CANCEL_WORDS = {"取消", "cancel", "退出", "quit"}
 
@@ -150,7 +186,9 @@ def _extract_qq(arg: str) -> str:
 
 
 @relogin_cmd.handle()
-async def _relogin_handle(event: MessageEvent, state: T_State, args: Message = CommandArg()):
+async def _relogin_handle(bot: Bot, event: MessageEvent, state: T_State, args: Message = CommandArg()):
+    state["_bot_session_id"] = bot_session_id(bot, event)
+    state["_session_command"] = "relogin"
     if not isinstance(event, PrivateMessageEvent):
         await relogin_cmd.finish("请私聊使用该命令。")
 
@@ -247,7 +285,9 @@ async def _relogin_got_nickname(
 
 
 @create_cmd.handle()
-async def _create_handle(event: MessageEvent, state: T_State, args: Message = CommandArg()):
+async def _create_handle(bot: Bot, event: MessageEvent, state: T_State, args: Message = CommandArg()):
+    state["_bot_session_id"] = bot_session_id(bot, event)
+    state["_session_command"] = "create"
     if not isinstance(event, PrivateMessageEvent):
         await create_cmd.finish("请私聊使用该命令。")
 

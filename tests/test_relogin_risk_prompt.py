@@ -14,7 +14,8 @@ _ROOT = Path(__file__).resolve().parents[1] / "src" / "pallas_plugin_relogin_bot
 
 def load_module(qualified: str, filename: str):
     spec = importlib.util.spec_from_file_location(qualified, _ROOT / filename)
-    assert spec and spec.loader
+    assert spec
+    assert spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[qualified] = module
     spec.loader.exec_module(module)
@@ -22,9 +23,7 @@ def load_module(qualified: str, filename: str):
 
 
 nonebot = types.ModuleType("nonebot")
-nonebot.get_driver = lambda: types.SimpleNamespace(
-    config=types.SimpleNamespace(superusers=set())
-)
+nonebot.get_driver = lambda: types.SimpleNamespace(config=types.SimpleNamespace(superusers=set()))
 sys.modules.setdefault("nonebot", nonebot)
 
 config = types.ModuleType("pallas.api.config")
@@ -71,6 +70,43 @@ def test_parse_risk_device_answer() -> None:
     assert service.parse_risk_device_answer("不确定") is None
 
 
+def test_relogin_session_key_is_bot_aware() -> None:
+    assert service.session_key("10001", "20002") != service.session_key("10003", "20002")
+    assert service.session_key("10001", "20002") != service.session_key("10001", "20003")
+
+
+def test_relogin_sessions_are_isolated_between_bots() -> None:
+    service._sessions.clear()
+    first = asyncio.run(service.handle_relogin_message(bot_id="10001", user_id="20002", text="牛牛重新上号"))
+    second = asyncio.run(service.handle_relogin_message(bot_id="10003", user_id="20002", text="牛牛重新上号"))
+
+    assert first.session_active
+    assert second.session_active
+    assert len(service._sessions) == 2
+
+    asyncio.run(service.handle_relogin_message(bot_id="10001", user_id="20002", text="取消"))
+    assert service.session_key("10001", "20002") not in service._sessions
+    assert service.session_key("10003", "20002") in service._sessions
+
+    asyncio.run(service.handle_relogin_message(bot_id="10003", user_id="20002", text="取消"))
+    assert not service._sessions
+
+
+def test_relogin_sessions_are_isolated_between_users_and_clean_up() -> None:
+    service._sessions.clear()
+    first = asyncio.run(service.handle_relogin_message(bot_id="10001", user_id="20002", text="牛牛重新上号"))
+    second = asyncio.run(service.handle_relogin_message(bot_id="10001", user_id="20003", text="牛牛重新上号"))
+
+    assert first.session_active
+    assert second.session_active
+    assert len(service._sessions) == 2
+
+    asyncio.run(service.handle_relogin_message(bot_id="10001", user_id="20002", text="取消"))
+    assert service.session_key("10001", "20003") in service._sessions
+    asyncio.run(service.handle_relogin_message(bot_id="10001", user_id="20003", text="取消"))
+    assert not service._sessions
+
+
 def test_existing_snowluma_account_waits_for_risk_answer(monkeypatch) -> None:
     protocol = types.ModuleType("pallas_plugin_protocol")
     protocol.manager = types.SimpleNamespace(
@@ -89,22 +125,14 @@ def test_existing_snowluma_account_waits_for_risk_answer(monkeypatch) -> None:
         return True
 
     monkeypatch.setattr(service, "user_is_bot_admin", is_admin)
-    session = service.ReloginSession(
-        kind="relogin", step="validate_qq", data={"qq": "123456"}
-    )
+    session = service.ReloginSession(kind="relogin", step="validate_qq", data={"qq": "123456"})
     result = ReloginHandleResult()
 
-    asyncio.run(
-        service.handle_relogin_session(
-            session, "10001", "牛牛重新上号 123456", False, result, "key"
-        )
-    )
+    asyncio.run(service.handle_relogin_session(session, "10001", "牛牛重新上号 123456", False, result, "key"))
 
     assert session.step == "await_risk_device"
     assert result.session_active
-    assert [item.content for item in result.replies] == [
-        "是否提示“风险/外挂设备”？（是/否）"
-    ]
+    assert [item.content for item in result.replies] == ["是否提示“风险/外挂设备”？（是/否）"]
 
 
 def test_relogin_skips_recovery_when_bot_is_already_connected(monkeypatch) -> None:
